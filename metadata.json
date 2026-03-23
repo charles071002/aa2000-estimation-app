@@ -1,0 +1,8 @@
+{
+  "name": "V3 03/3/26 of AA2000 Site Survey ",
+  "description": "Streamlined site survey application for AA2000 technicians, featuring native voice-to-text and optimized CCTV/Fire audit workflows.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

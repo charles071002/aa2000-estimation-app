@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AA2000 Site Survey</title>
+  
+  <!-- PWA & Mobile Optimization -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AA2000 Pro">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            blue: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              400: '#60a5fa',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#2563eb',
+              900: '#2563eb',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+  }
+}
+</script>
+<style>
+  /* Native App Feel Adjustments */
+  :root {
+    --app-height: 100%;
+  }
+  
+  html, body {
+    height: 100%;
+    width: 100%;
+    background-color: #f1f5f9; /* slate-100 */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Only apply fixed/hidden on mobile if we really want that "app" feel, 
+     but for a website version, it's better to allow natural scrolling 
+     especially on desktop. */
+  @media (max-width: 768px) {
+    html, body {
+      overflow: hidden;
+      height: 100dvh;
+      position: fixed;
+      overscroll-behavior: none;
+    }
+  }
+
+  /* GLOBAL: Hide Scrollbars while maintaining scroll functionality */
+  *::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+  * {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  /* Accessibility: Visible focus rings for keyboard navigation */
+  *:focus-visible {
+    outline: 2px solid #F59E0B;
+    outline-offset: 2px;
+  }
+
+  input, textarea {
+    user-select: text !important; /* Allow selection in inputs */
+    font-size: 16px !important; /* Prevents iOS auto-zoom on focus */
+  }
+
+  #root {
+    height: 100%;
+    width: 100%;
+  }
+
+  /* Smooth transitions */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Touch-friendly target sizes helper */
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <div id="root" role="main"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
