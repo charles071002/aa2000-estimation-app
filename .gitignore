@@ -1,3 +1,6 @@
+# Dependencies — do not commit (reinstall with npm install)
+node_modules/
+
 # Logs
 logs
 *.log
@@ -7,15 +10,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Environment (API keys - do not commit)
+# Environment with secrets — never commit; copy .env.example to .env locally
 .env
 .env.local
 .env.*.local
+*.local
 
 # Editor directories and files
 .vscode/*
