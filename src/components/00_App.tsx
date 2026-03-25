@@ -776,7 +776,7 @@ if (!dP) {
   };
 
   return (
-    <div className="w-full md:max-w-5xl lg:max-w-6xl mx-auto h-[100dvh] md:h-[90vh] md:my-[5vh] bg-white md:rounded-[2.5rem] shadow-2xl relative overflow-hidden text-slate-900 font-sans flex flex-col transition-all duration-500">
+    <div className="w-full min-h-[100dvh] h-[100dvh] bg-white relative overflow-hidden text-slate-900 font-sans flex flex-col transition-all duration-500">
       {renderScreen()}
     </div>
   );

@@ -26,6 +26,18 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
 
+  const fitMapToLocation = (map: L.Map, marker: L.Marker, latLng: L.LatLngExpression) => {
+    marker.setLatLng(latLng);
+    const run = () => {
+      map.invalidateSize();
+      map.setView(latLng, 16, { animate: true });
+    };
+    run();
+    requestAnimationFrame(run);
+    window.setTimeout(run, 50);
+    window.setTimeout(run, 250);
+  };
+
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
     const map = L.map(mapRef.current).setView([location.lat, location.lon], 16);
@@ -49,7 +61,15 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
     map.on('moveend', onMapResize);
     mapInstanceRef.current = map;
     markerRef.current = marker;
+
+    let resizeObs: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapRef.current) {
+      resizeObs = new ResizeObserver(() => map.invalidateSize());
+      resizeObs.observe(mapRef.current);
+    }
+
     return () => {
+      resizeObs?.disconnect();
       map.off('zoomend', onMapResize);
       map.off('moveend', onMapResize);
       map.remove();
@@ -63,8 +83,7 @@ function LocationPicker({ location, onChange }: { location: LatLon; onChange: (l
     const marker = markerRef.current;
     if (!map || !marker) return;
     const latLng = L.latLng(location.lat, location.lon);
-    marker.setLatLng(latLng);
-    map.panTo(latLng);
+    fitMapToLocation(map, marker, latLng);
   }, [location.lat, location.lon]);
 
   return (
@@ -205,12 +224,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
   const applyReverseGeocode = async (lat: number, lon: number): Promise<string> => {
     try {
       const addr = await reverseGeocode(lat, lon);
-      const street = addr.street ?? '';
-      const municipality = addr.city ?? '';
-      const province = addr.province ?? '';
-      const postal = addr.postcode ?? '';
-      const pieces = [street, municipality, province, postal].filter(Boolean);
-      const addressStr = pieces.length ? pieces.join(', ') : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      const addressStr = addr.displayName.trim() || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
       setDetails((prev) => ({ ...prev, location: addressStr }));
       return addressStr;
     } catch {
@@ -494,7 +508,17 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
                   />
                   <button
                     type="button"
-                    onClick={() => setShowLocationScreen(false)}
+                    onClick={async () => {
+                      if (location) {
+                        const addressStr = await applyReverseGeocode(location.lat, location.lon);
+                        setLocQuery(addressStr);
+                        setDetails((prev) => ({
+                          ...prev,
+                          locationName: addressStr.trim() || prev.locationName
+                        }));
+                      }
+                      setShowLocationScreen(false);
+                    }}
                     className="w-full mt-3 py-3 rounded-xl bg-blue-900 text-white text-[10px] font-black uppercase tracking-widest transition hover:bg-blue-800 active:scale-[0.98]"
                   >
                     SAVE PIN LOCATION

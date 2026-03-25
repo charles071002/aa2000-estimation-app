@@ -10,6 +10,8 @@ const HEADERS: HeadersInit = {
 };
 
 export interface ReverseGeocodeResult {
+  /** Full human-readable address from Nominatim (same as search results). */
+  displayName: string;
   street: string;
   city: string;
   province: string;
@@ -22,11 +24,23 @@ export async function reverseGeocode(lat: number, lon: number): Promise<ReverseG
   if (!res.ok) throw new Error('Reverse geocode failed');
   const data = await res.json();
   const addr = data.address || {};
+  const street = [addr.road, addr.house_number, addr.suburb].filter(Boolean).join(', ') || '';
+  const city = addr.city || addr.town || addr.village || addr.municipality || '';
+  const province = addr.state || addr.province || '';
+  const postcode = addr.postcode || '';
+  const pieces = [street, city, province, postcode].filter(Boolean);
+  const displayName =
+    typeof data.display_name === 'string' && data.display_name.trim()
+      ? data.display_name.trim()
+      : pieces.length
+        ? pieces.join(', ')
+        : `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
   return {
-    street: [addr.road, addr.house_number, addr.suburb].filter(Boolean).join(', ') || '',
-    city: addr.city || addr.town || addr.village || addr.municipality || '',
-    province: addr.state || addr.province || '',
-    postcode: addr.postcode || '',
+    displayName,
+    street,
+    city,
+    province,
+    postcode,
   };
 }
 
