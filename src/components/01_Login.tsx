@@ -165,15 +165,15 @@ const Login: React.FC<Props> = ({ onBack, onLogin }) => {
           </div>
 
           {/* 
-              AUTHENTICATE ACTION
+              LOGIN ACTION
               Logic: Triggers the handleLoginAttempt function.
-              UI Label: "AUTHENTICATE" signals the start of the verification process.
+              UI Label: "Log In" signals the start of the verification process.
           */}
           <button 
             onClick={handleLoginAttempt}
             className="w-full py-4 bg-blue-900 hover:bg-blue-800 text-white font-black rounded-xl shadow-xl transition active:scale-[0.98]"
           >
-            AUTHENTICATE
+            Log In
           </button>
 
           <button 
