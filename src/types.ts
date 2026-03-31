@@ -30,7 +30,7 @@ export interface Project {
   technicianResponses?: Record<string, 'ACCEPTED' | 'DECLINED'>;
   /** Required manpower count assigned during project setup. */
   requiredTechnicians?: number;
-  status: 'In Progress' | 'Completed';
+  status: 'In Progress' | 'Pending Review' | 'Rejected' | 'Finalized' | 'Completed';
   technicianName: string;
   date: string;
 }

@@ -147,6 +147,10 @@ function getSystemEstimate(
 }
 
 const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, fpData, acData, baData, otherData, estimations, estimationData, onDone, hideDoneButton = false, onDeleteSurvey, onEditAudit }) => {
+  const canViewSensitive = userRole === 'ADMIN';
+  const isTechnician = userRole === 'TECHNICIAN';
+  const isTechnicianFinalizedLock = isTechnician && project.status === 'Finalized';
+  const canModifyAudit = !isTechnicianFinalizedLock;
   const [currentRemark, setCurrentRemark] = useState('');
   const [sender, setSender] = useState<'Sales' | 'Admin' | 'Technician'>(userRole === 'ADMIN' ? 'Sales' : 'Technician');
   const [remarkHistory, setRemarkHistory] = useState<Remark[]>([]);
@@ -631,8 +635,8 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
               </section>
             )}
             
-            {/* Cost Summary */}
-            {(() => {
+            {/* Cost Summary (Sales/Admin only) */}
+            {canViewSensitive && (() => {
               const typeToKey: Record<string, string> = { 'CCTV': SurveyType.CCTV, 'Fire Alarm': SurveyType.FIRE_ALARM, 'Access Control': SurveyType.ACCESS_CONTROL, 'Burglar Alarm': SurveyType.BURGLAR_ALARM, 'Fire Protection': SurveyType.FIRE_PROTECTION, 'Other': SurveyType.OTHER };
               const est = estimations?.[typeToKey[type]] as EstimationDetail | undefined;
               const cost = getSystemEstimate(type, data, est);
@@ -714,8 +718,8 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
               );
             })()}
 
-            {/* Consumables */}
-            {(() => {
+            {/* Consumables (Sales/Admin only) */}
+            {canViewSensitive && (() => {
               const typeToKey: Record<string, string> = { 'CCTV': SurveyType.CCTV, 'Fire Alarm': SurveyType.FIRE_ALARM, 'Access Control': SurveyType.ACCESS_CONTROL, 'Burglar Alarm': SurveyType.BURGLAR_ALARM, 'Fire Protection': SurveyType.FIRE_PROTECTION, 'Other': SurveyType.OTHER };
               const est = estimations?.[typeToKey[type]] as EstimationDetail | undefined;
               const list = est?.consumablesList;
@@ -840,19 +844,29 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
           </div>
 
           <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0 space-y-2">
-            {userRole !== 'ADMIN' && onDeleteSurvey && (
+            {onDeleteSurvey && (
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-[10px]"
+                disabled={!canModifyAudit}
+                onClick={() => {
+                  if (!canModifyAudit) return;
+                  setShowDeleteConfirm(true);
+                }}
+                className={`w-full py-3 font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-[10px] ${
+                  canModifyAudit
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                }`}
               >
                 Delete Audit
               </button>
             )}
-            {userRole !== 'ADMIN' && onEditAudit && (
+            {onEditAudit && (
               <button
                 type="button"
+                disabled={!canModifyAudit}
                 onClick={() => {
+                  if (!canModifyAudit) return;
                   const detailTypeToSurveyType: Record<string, SurveyType> = {
                     'CCTV': SurveyType.CCTV,
                     'Fire Alarm': SurveyType.FIRE_ALARM,
@@ -865,7 +879,11 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
                   onEditAudit(surveyType);
                   closeDetail();
                 }}
-                className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-[10px]"
+                className={`w-full py-3 font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-[10px] ${
+                  canModifyAudit
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                    : 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                }`}
               >
                 Edit Audit
               </button>
@@ -960,14 +978,22 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
               <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Site</span>
               <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.locationName || project.location || '—'}</span>
             </div>
-            <div className="flex justify-between items-center border-b border-slate-200 pb-1">
-              <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Contact</span>
-              <span className="font-normal text-slate-900 text-sm">{project.clientContact}</span>
+            <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+              <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Status</span>
+              <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.status || 'In Progress'}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Email</span>
-              <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.clientEmail || '—'}</span>
-            </div>
+            {canViewSensitive && (
+              <>
+                <div className="flex justify-between items-center border-b border-slate-200 pb-1">
+                  <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Contact</span>
+                  <span className="font-normal text-slate-900 text-sm">{project.clientContact}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Email</span>
+                  <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.clientEmail || '—'}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="bg-white border border-slate-100 rounded-xl p-3 text-left space-y-4 shadow-sm">
@@ -1312,7 +1338,7 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
       {!hideDoneButton && (
         <div className="p-3 shrink-0 bg-white border-t border-slate-100">
           {/* Removed italic font style */}
-          <button onClick={onDone} className="w-full py-4 bg-[#003399] text-white font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-xs">DASHBOARD RETURN</button>
+          <button onClick={onDone} className="w-full py-4 bg-[#003399] text-white font-black rounded-xl shadow-lg active:scale-95 transition tracking-widest uppercase text-xs">{userRole === 'TECHNICIAN' ? 'MARK AS DONE' : 'DASHBOARD RETURN'}</button>
         </div>
       )}
     </div>

@@ -11,6 +11,8 @@ interface Props {
   onCreateProject: () => void;
   /** Logic callback to open an existing project + selected survey for editing. */
   onEditAuditFromList: (projectRecord: any, index: number, surveyType: SurveyType) => void;
+  /** Opens report summary for Sales/Admin review. */
+  onOpenSummaryFromList: (projectRecord: any, index: number) => void;
   /** Logic callback to clear the local session and return to role selection. */
   onLogout: () => void;
 }
@@ -20,7 +22,7 @@ interface Props {
  * Purpose: This is the central operational hub for technicians. It provides 
  * high-level navigation to the core features of the site survey system.
  */
-const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAuditFromList, onLogout }) => {
+const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAuditFromList, onOpenSummaryFromList, onLogout }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [activeSection, setActiveSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
@@ -72,7 +74,8 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
   }, [user.email, user.fullName, userRole]);
 
   const resolveCategory = (project: Project): 'ONGOING' | 'UPCOMING' | 'HISTORY' => {
-    if (project.status === 'Completed') return 'HISTORY';
+    const historyStatuses: Project['status'][] = ['Pending Review', 'Finalized', 'Completed'];
+    if (historyStatuses.includes(project.status)) return 'HISTORY';
     if (!project.startDate) return 'ONGOING';
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -118,6 +121,24 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
     setShowSystemModal(false);
     setSelectedRecord(null);
     setEditableProject(null);
+  };
+
+  const updateProjectStatus = (index: number, status: Project['status']) => {
+    const raw = localStorage.getItem('aa2000_saved_projects');
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!parsed[index]?.project) return;
+    parsed[index] = {
+      ...parsed[index],
+      project: { ...parsed[index].project, status },
+    };
+    localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+    setSavedProjects((prev) =>
+      prev.map((item) =>
+        item.index === index
+          ? { ...item, record: { ...item.record, project: { ...item.record.project, status } } }
+          : item
+      )
+    );
   };
 
   const proceedToSurvey = (type: SurveyType) => {
@@ -317,10 +338,20 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
                 const project = record.project as Project;
                 const assignedCount = project.assignedTechnicians?.length || project.requiredTechnicians || 0;
                 const myResponse = getTechnicianResponse(project);
+                const isTechnicianHistory = userRole === 'TECHNICIAN' && activeSection === 'HISTORY';
                 return (
                   <div
                     key={`${project.id}-${index}`}
-                    className="w-full p-5 bg-white border border-slate-200 rounded-2xl shadow-sm text-left"
+                    className={`w-full p-5 bg-white border border-slate-200 rounded-2xl shadow-sm text-left ${isTechnicianHistory ? 'cursor-pointer hover:border-blue-300 transition-colors' : ''}`}
+                    role={isTechnicianHistory ? 'button' : undefined}
+                    tabIndex={isTechnicianHistory ? 0 : undefined}
+                    onClick={isTechnicianHistory ? () => onOpenSummaryFromList(record, index) : undefined}
+                    onKeyDown={isTechnicianHistory ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onOpenSummaryFromList(record, index);
+                      }
+                    } : undefined}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -350,7 +381,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
                       </div>
                     </div>
 
-                    {userRole === 'TECHNICIAN' && (
+                    {userRole === 'TECHNICIAN' && activeSection !== 'HISTORY' && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -392,6 +423,31 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
                             </span>
                           );
                         })}
+                        <button
+                          type="button"
+                          onClick={() => onOpenSummaryFromList(record, index)}
+                          className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-blue-900 text-white hover:bg-blue-800"
+                        >
+                          Review Summary
+                        </button>
+                        {project.status === 'Pending Review' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => updateProjectStatus(index, 'Finalized')}
+                              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-green-600 text-white hover:bg-green-500"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateProjectStatus(index, 'Rejected')}
+                              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-red-600 text-white hover:bg-red-500"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

@@ -580,6 +580,11 @@ const App: React.FC = () => {
               setScreen('PROJECT_DETAILS');
             }}
             onEditAuditFromList={handleEditAuditFromList}
+            onOpenSummaryFromList={(projectRecord, index) => {
+              setSelectedHistoricalProject(projectRecord);
+              setEditingIndex(index);
+              setScreen('SUMMARY');
+            }}
             onLogout={handleLogout}
           />
         );
@@ -815,6 +820,11 @@ if (!dP) {
           setScreen(surveyTypeToScreen[surveyType]);
         };
 
+        const shouldHideTechnicianDoneButton =
+          userRole === 'TECHNICIAN' &&
+          !!selectedHistoricalProject &&
+          dP.status !== 'In Progress';
+
         return (
           <SurveySummary
             userRole={userRole}
@@ -826,7 +836,19 @@ if (!dP) {
             baData={dBA}
             otherData={dO}
             estimations={dE}
+            hideDoneButton={userRole === 'ADMIN' || shouldHideTechnicianDoneButton}
             onDone={() => {
+              if (userRole === 'TECHNICIAN' && editingIndex !== null) {
+                const raw = localStorage.getItem('aa2000_saved_projects');
+                const parsed = raw ? JSON.parse(raw) : [];
+                if (parsed[editingIndex]?.project) {
+                  parsed[editingIndex] = {
+                    ...parsed[editingIndex],
+                    project: { ...parsed[editingIndex].project, status: 'Pending Review' },
+                  };
+                  localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+                }
+              }
               setScreen(userRole === 'ADMIN' ? 'CURRENT_PROJECTS' : 'DASHBOARD');
               setActiveProject(null); setCctvData(null); setFaData(null); setFpData(null);
               setAcData(null); setBaData(null); setOtherData(null); setEstimations({});
