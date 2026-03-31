@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Project, SurveyType, EstimationDetail, CCTVSurveyData, FireAlarmSurveyData, AccessControlSurveyData, BurglarAlarmSurveyData, FireProtectionSurveyData, OtherSurveyData, ChatMessage } from '../types';
 import Login from './01_Login';
+import AdminLogin from './12_AdminLogin';
 import Signup from './02_Signup';
 import Dashboard from './03_Dashboard';
 import CurrentProjects from './04_CurrentProjects';
@@ -22,13 +23,31 @@ import { AA2000_LOGO } from '../constants';
  * ROLE_SELECTION -> LOGIN/SIGNUP -> DASHBOARD -> (Workflow Loop below)
  * PROJECT_DETAILS -> SYSTEM_SURVEY -> ESTIMATION -> SUMMARY
  */
-type Screen = 'ROLE_SELECTION' | 'START' | 'LOGIN' | 'SIGNUP' | 'DASHBOARD' | 'CURRENT_PROJECTS' | 'PROJECT_DETAILS' | 'CCTV_SURVEY' | 'FA_SURVEY' | 'FP_SURVEY' | 'AC_SURVEY' | 'BA_SURVEY' | 'OTHER_SURVEY' | 'AI_CLARIFICATION' | 'ESTIMATION' | 'SUMMARY';
+type Screen =
+  | 'ROLE_SELECTION'
+  | 'START'
+  | 'LOGIN'
+  | 'ADMIN_LOGIN'
+  | 'SIGNUP'
+  | 'DASHBOARD'
+  | 'CURRENT_PROJECTS'
+  | 'PROJECT_DETAILS'
+  | 'CCTV_SURVEY'
+  | 'FA_SURVEY'
+  | 'FP_SURVEY'
+  | 'AC_SURVEY'
+  | 'BA_SURVEY'
+  | 'OTHER_SURVEY'
+  | 'AI_CLARIFICATION'
+  | 'ESTIMATION'
+  | 'SUMMARY';
 
 /** URL path for each screen (used for address bar and back/forward). */
 const SCREEN_TO_PATH: Record<Screen, string> = {
   ROLE_SELECTION: '/',
   START: '/start',
   LOGIN: '/login',
+  ADMIN_LOGIN: '/admin-login',
   SIGNUP: '/signup',
   DASHBOARD: '/dashboard',
   CURRENT_PROJECTS: '/projects',
@@ -53,9 +72,9 @@ function pathnameToScreen(pathname: string): Screen {
   return PATH_TO_SCREEN[normalized] ?? 'ROLE_SELECTION';
 }
 
-/** Screens that require an authenticated user; direct URL access without login shows auth notice. Sales & Admin can access CURRENT_PROJECTS (/projects) without login. */
+/** Screens that require an authenticated user; direct URL access without login shows auth notice. */
 const PROTECTED_SCREENS: Screen[] = [
-  'DASHBOARD', 'PROJECT_DETAILS',
+  'DASHBOARD', 'CURRENT_PROJECTS', 'PROJECT_DETAILS',
   'CCTV_SURVEY', 'FA_SURVEY', 'FP_SURVEY', 'AC_SURVEY', 'BA_SURVEY', 'OTHER_SURVEY',
   'AI_CLARIFICATION', 'ESTIMATION', 'SUMMARY',
 ];
@@ -188,11 +207,18 @@ const App: React.FC = () => {
     }
 
     const savedUser = localStorage.getItem('aa2000_user');
-    if (savedUser && (pathname === '/' || pathname === '')) {
-      setUser(JSON.parse(savedUser));
-      setUserRole('TECHNICIAN');
-      replaceStateRef.current = true;
-      setScreen('DASHBOARD');
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      const savedRole = localStorage.getItem('aa2000_userRole');
+      const normalizedRole = savedRole === 'ADMIN' ? 'ADMIN' : 'TECHNICIAN';
+
+      setUser(parsedUser);
+      setUserRole(normalizedRole);
+
+      if (pathname === '/' || pathname === '') {
+        replaceStateRef.current = true;
+        setScreen('DASHBOARD');
+      }
     }
   }, []);
 
@@ -245,6 +271,16 @@ const App: React.FC = () => {
     setUser(u);
     setUserRole('TECHNICIAN');
     localStorage.setItem('aa2000_user', JSON.stringify(u));
+    localStorage.setItem('aa2000_userRole', 'TECHNICIAN');
+    setScreen('DASHBOARD');
+  };
+
+  const handleAdminLogin = (u: User) => {
+    setUser(u);
+    setUserRole('ADMIN');
+    localStorage.setItem('aa2000_user', JSON.stringify(u));
+    localStorage.setItem('aa2000_userRole', 'ADMIN');
+    // Admin should be able to create new projects from the same dashboard UI.
     setScreen('DASHBOARD');
   };
 
@@ -252,6 +288,7 @@ const App: React.FC = () => {
     setUser(null);
     setUserRole(null);
     localStorage.removeItem('aa2000_user');
+    localStorage.removeItem('aa2000_userRole');
     setScreen('ROLE_SELECTION');
   };
 
@@ -450,7 +487,7 @@ const App: React.FC = () => {
                 onClick={() => {
                   setUserRole('ADMIN');
                   setUser(null); 
-                  setScreen('CURRENT_PROJECTS');
+                  setScreen('ADMIN_LOGIN');
                 }}
                 className="w-full group p-6 bg-white border-2 border-blue-900 rounded-[2rem] shadow-lg hover:bg-blue-50 transition-all active:scale-95 text-blue-900 flex flex-col items-center gap-1"
               >
@@ -491,6 +528,9 @@ const App: React.FC = () => {
       case 'LOGIN':
         return <Login onBack={() => setScreen('START')} onLogin={handleLogin} />;
       
+      case 'ADMIN_LOGIN':
+        return <AdminLogin onBack={() => setScreen('ROLE_SELECTION')} onLogin={handleAdminLogin} />;
+
       case 'SIGNUP':
         return <Signup onBack={() => setScreen('START')} onSignupComplete={() => setScreen('LOGIN')} />;
 
@@ -524,7 +564,7 @@ const App: React.FC = () => {
           <CurrentProjects 
             user={user}
             userRole={userRole}
-            onBack={() => (userRole === 'ADMIN' ? setScreen('ROLE_SELECTION') : setScreen('DASHBOARD'))}
+            onBack={() => setScreen('DASHBOARD')}
             onViewProject={(proj) => {
               setSelectedHistoricalProject(proj);
               setScreen('SUMMARY');
