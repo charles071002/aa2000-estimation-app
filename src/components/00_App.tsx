@@ -300,6 +300,35 @@ const App: React.FC = () => {
     setActiveProject(p);
   };
 
+  /** Sales/Admin setup-only flow: create assigned project without entering survey screens. */
+  const handleCreateAssignedProject = (p: Project) => {
+    const savedProjectsRaw = localStorage.getItem('aa2000_saved_projects');
+    const savedProjects = savedProjectsRaw ? JSON.parse(savedProjectsRaw) : [];
+    savedProjects.push({
+      project: p,
+      cctvData: null,
+      faData: null,
+      fpData: null,
+      acData: null,
+      baData: null,
+      otherData: null,
+      estimations: undefined,
+      timestamp: new Date().toISOString(),
+    });
+    localStorage.setItem('aa2000_saved_projects', JSON.stringify(savedProjects));
+    setActiveProject(null);
+    setSurveyType(null);
+    setCctvData(null);
+    setFaData(null);
+    setFpData(null);
+    setAcData(null);
+    setBaData(null);
+    setOtherData(null);
+    setEstimations({});
+    setEditingIndex(null);
+    setScreen('DASHBOARD');
+  };
+
   /**
    * SURVEY ROUTING
    * Logic: Redirects the user to the specific technical audit form based on their selection.
@@ -538,6 +567,7 @@ const App: React.FC = () => {
         return (
           <Dashboard 
             user={user!}
+            userRole={userRole}
             onNewProject={() => {
               setActiveProject(null);
               setCctvData(null);
@@ -556,6 +586,7 @@ const App: React.FC = () => {
             }}
             onCurrentProjects={() => setScreen('CURRENT_PROJECTS')}
             onLogout={handleLogout}
+            onEditProjectFromDashboard={handleEditAuditFromList}
           />
         );
 
@@ -581,6 +612,8 @@ const App: React.FC = () => {
             onBack={() => setScreen(editingIndex !== null ? 'CURRENT_PROJECTS' : 'DASHBOARD')}
             onStart={startProject}
             onSelectSurvey={handleSurveySelection}
+            creationOnly={userRole === 'ADMIN'}
+            onCreateProject={userRole === 'ADMIN' ? handleCreateAssignedProject : undefined}
             initialData={activeProject || undefined}
           />
         );

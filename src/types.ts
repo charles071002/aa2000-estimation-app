@@ -20,6 +20,14 @@ export interface Project {
   location: string;
   /** User-defined name for the project location (e.g. "Main Office", "Site A"). */
   locationName?: string;
+  /** Project schedule start date (YYYY-MM-DD). */
+  startDate?: string;
+  /** Assigned technicians for this project. */
+  assignedTechnicians?: Array<{ fullName: string; email: string }>;
+  /** Response per assigned technician email: ACCEPTED or DECLINED. */
+  technicianResponses?: Record<string, 'ACCEPTED' | 'DECLINED'>;
+  /** Required manpower count assigned during project setup. */
+  requiredTechnicians?: number;
   status: 'In Progress' | 'Completed';
   technicianName: string;
   date: string;

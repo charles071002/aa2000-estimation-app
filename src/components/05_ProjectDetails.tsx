@@ -20,6 +20,7 @@ import { processDigitsOnly, processEmail, processPersonName, processTitleCase } 
 
 type LatLon = { lat: number; lon: number };
 const DEFAULT_LOCATION: LatLon = { lat: 14.5995, lon: 120.9842 };
+type TechnicianOption = { fullName: string; email: string };
 
 function LocationPicker({ location, onChange }: { location: LatLon; onChange: (loc: LatLon) => void }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +103,10 @@ interface Props {
   onStart: (p: Project) => void;
   /** Callback to transition the user to a specific technical audit workflow */
   onSelectSurvey: (type: SurveyType) => void;
+  /** If true, this screen only creates/assigns project and does not open survey selection. */
+  creationOnly?: boolean;
+  /** Callback used in creation-only mode to persist a setup-only project. */
+  onCreateProject?: (p: Project) => void;
   /** Optional project data if we are editing an existing record */
   initialData?: Project;
 }
@@ -115,7 +120,7 @@ interface Props {
  * Behavior: Validates input integrity (especially the 11-digit phone number) and 
  * provides voice-to-text dictation for efficient field entry.
  */
-const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey, initialData }) => {
+const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey, creationOnly = false, onCreateProject, initialData }) => {
   /**
    * STATE: details
    * Purpose: Stores the text values for the project identification fields.
@@ -127,8 +132,12 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
     clientEmail: '',    // Client email address
     clientContact: '',   // Required 11-digit mobile/landline number
     location: '',       // Physical address or specific site location
-    locationName: ''    // Name of the project location (e.g. "Main Office", "Site A")
+    locationName: '',   // Name of the project location (e.g. "Main Office", "Site A")
+    startDate: '',
+    assignedTechnicians: [] as TechnicianOption[]
   });
+  const [availableTechnicians, setAvailableTechnicians] = useState<TechnicianOption[]>([]);
+  const [selectedTechnicianEmail, setSelectedTechnicianEmail] = useState('');
 
   /**
    * EFFECT: Sync form from initialData when returning to Project Details (e.g. back from survey).
@@ -142,7 +151,9 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
         clientEmail: initialData.clientEmail ?? '',
         clientContact: initialData.clientContact ?? '',
         location: initialData.location ?? '',
-        locationName: initialData.locationName ?? ''
+        locationName: initialData.locationName ?? '',
+        startDate: initialData.startDate ?? '',
+        assignedTechnicians: initialData.assignedTechnicians ?? []
       });
     }
   }, [initialData]);
@@ -188,7 +199,44 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
     details.clientName.trim() !== '' &&
     details.clientContact.trim() !== '' &&
     details.clientEmail.trim() !== '' &&
-    details.locationName.trim() !== '';
+    details.locationName.trim() !== '' &&
+    details.startDate.trim() !== '' &&
+    details.assignedTechnicians.length > 0;
+
+  const computeStatus = (): 'In Progress' | 'Completed' => {
+    if (!details.startDate) return initialData?.status || 'In Progress';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(details.startDate);
+    start.setHours(0, 0, 0, 0);
+    return start.getTime() > today.getTime() ? 'In Progress' : (initialData?.status || 'In Progress');
+  };
+
+  useEffect(() => {
+    const techniciansRaw = localStorage.getItem('aa2000_technicians');
+    const allTechs: TechnicianOption[] = techniciansRaw
+      ? JSON.parse(techniciansRaw).map((t: any) => ({ fullName: t.fullName, email: t.email }))
+      : [];
+    if (!details.startDate) {
+      setAvailableTechnicians(allTechs);
+      return;
+    }
+    const savedRaw = localStorage.getItem('aa2000_saved_projects');
+    const saved = savedRaw ? JSON.parse(savedRaw) : [];
+    const countByEmail: Record<string, number> = {};
+    saved.forEach((record: any) => {
+      const p = record?.project;
+      if (!p?.startDate || p.startDate !== details.startDate) return;
+      const assigned = Array.isArray(p.assignedTechnicians) ? p.assignedTechnicians : [];
+      assigned.forEach((tech: TechnicianOption) => {
+        countByEmail[tech.email] = (countByEmail[tech.email] || 0) + 1;
+      });
+    });
+    const currentAssignedEmails = new Set(details.assignedTechnicians.map((t) => t.email));
+    setAvailableTechnicians(
+      allTechs.filter((t) => (countByEmail[t.email] || 0) < 4 || currentAssignedEmails.has(t.email))
+    );
+  }, [details.startDate, details.assignedTechnicians]);
 
   /**
    * FUNCTION: handleSelect
@@ -199,13 +247,21 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
    * Input: SurveyType (Enum identifying which technical audit tool to load).
    */
   const handleSelect = (type: SurveyType) => {
-    onStart({
+    const payload: Project = {
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       ...details,
-      status: initialData?.status || 'In Progress',
-      technicianName: initialData?.technicianName || user.fullName,
+      requiredTechnicians: details.assignedTechnicians.length,
+      status: computeStatus(),
+      technicianName: initialData?.technicianName || (details.assignedTechnicians[0]?.fullName || user.fullName),
+      assignedTechnicians: details.assignedTechnicians,
       date: initialData?.date || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    });
+    };
+    onStart(payload);
+    if (creationOnly && onCreateProject) {
+      onCreateProject(payload);
+      setShowSurveyModal(false);
+      return;
+    }
     onSelectSurvey(type);
     setShowSurveyModal(false);
   };
@@ -383,6 +439,8 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
   const handleProceedAttempt = () => {
     if (!isFormComplete) {
       setShowErrors(true);
+    } else if (creationOnly) {
+      handleSelect(SurveyType.OTHER);
     } else {
       setShowSurveyModal(true);
     }
@@ -690,6 +748,63 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
             </button>
           </div>
         </div>
+
+        <div>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Project Start Date</label>
+          <input
+            type="date"
+            value={details.startDate}
+            onChange={(e) => setDetails((prev) => ({ ...prev, startDate: e.target.value }))}
+            className={`w-full bg-slate-50 border-2 px-4 py-3 rounded-xl text-slate-900 focus:outline-none transition font-bold text-xs ${showErrors && details.startDate.trim() === '' ? 'border-red-500' : 'border-slate-100 focus:border-blue-900'}`}
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Manpower Assignment</label>
+          <div className="flex gap-2">
+            <select
+              value={selectedTechnicianEmail}
+              onChange={(e) => setSelectedTechnicianEmail(e.target.value)}
+              className="flex-1 bg-slate-50 border-2 border-slate-100 px-3 py-3 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-900"
+            >
+              <option value="">Select technician</option>
+              {availableTechnicians.map((tech) => (
+                <option key={tech.email} value={tech.email}>{tech.fullName} ({tech.email})</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                const pick = availableTechnicians.find((t) => t.email === selectedTechnicianEmail);
+                if (!pick) return;
+                if (details.assignedTechnicians.some((t) => t.email === pick.email)) return;
+                setDetails((prev) => ({ ...prev, assignedTechnicians: [...prev.assignedTechnicians, pick] }));
+                setSelectedTechnicianEmail('');
+              }}
+              className="px-4 rounded-xl bg-blue-900 text-white text-[10px] font-black uppercase"
+            >
+              Add
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {details.assignedTechnicians.map((tech) => (
+              <span key={tech.email} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-900 text-[10px] font-black uppercase">
+                {tech.fullName}
+                <button
+                  type="button"
+                  onClick={() => setDetails((prev) => ({ ...prev, assignedTechnicians: prev.assignedTechnicians.filter((t) => t.email !== tech.email) }))}
+                  className="text-blue-700"
+                  aria-label={`Remove ${tech.fullName}`}
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </span>
+            ))}
+          </div>
+          {showErrors && details.assignedTechnicians.length === 0 && (
+            <p className="text-[9px] text-red-500 font-black mt-2 uppercase tracking-widest">Assign at least one technician</p>
+          )}
+        </div>
       </div>
 
       {/* 
@@ -705,8 +820,8 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
           aria-haspopup="dialog"
         >
           <i className="fas fa-plus-circle text-2xl" aria-hidden="true"></i>
-          <span className="font-black text-lg uppercase tracking-tight">SELECT SURVEY SYSTEM</span>
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">Begin Site Audit</span>
+          <span className="font-black text-lg uppercase tracking-tight">{creationOnly ? 'SAVE & ASSIGN PROJECT' : 'SELECT SURVEY SYSTEM'}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">{creationOnly ? 'Setup for Technician Execution' : 'Begin Site Audit'}</span>
         </button>
         {showErrors && !isFormComplete && (
           <p className="text-[9px] text-red-500 font-black text-center mt-3 uppercase tracking-widest animate-pulse">
@@ -719,7 +834,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
           MODAL: SYSTEM CHOICE
           Purpose: Forces the technician to explicitly choose which technology system they are auditing first.
       */}
-      {showSurveyModal && (
+      {!creationOnly && showSurveyModal && (
         <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
             <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
