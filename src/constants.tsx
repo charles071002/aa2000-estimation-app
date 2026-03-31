@@ -24,6 +24,13 @@ export const AA2000_LOGO = (
   </div>
 );
 
+/**
+ * AA2000_ICON: Compact brand icon for tight header/toolbar layouts.
+ */
+export const AA2000_ICON = (
+  <img src={logoUrl} alt="AA2000" className="h-8 w-8 object-contain" aria-hidden="false" />
+);
+
 export const CAMERA_PURPOSES = ['Face Recognition', 'General Monitoring', 'LPR', 'Crowd Monitoring'];
 export const CAMERA_TYPES = ['Dome', 'Bullet', 'PTZ', 'Fisheye'];
 export const RESOLUTIONS = ['2MP', '4MP', '6MP', '8MP'];
