@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '../types';
-import { AA2000_LOGO } from '../constants';
+import { AA2000_ICON } from '../constants';
 
 interface Props {
   /** The authenticated user's profile information, containing fullName and email. */
@@ -21,6 +21,8 @@ interface Props {
 const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onLogout }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [activeSection, setActiveSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Password change states
@@ -88,95 +90,170 @@ const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onL
   };
 
   return (
-    <div className="flex flex-col h-full bg-white overflow-y-auto scrollbar-hide" role="region" aria-label="Technician Dashboard">
-      {/* 
-          DASHBOARD HEADER 
-          Purpose: Display brand identity and session management menu.
-      */}
-      <header className="pt-4 pb-2 px-4 md:pt-8 md:pb-4 md:px-8 bg-white flex flex-col items-center border-b border-slate-100 relative">
-        {/* 
-            SETTINGS MENU
-            Logic: Toggles a dropdown menu with Logout and Change Password options.
-            Z-Index: Set to 100 to ensure it is above all page content.
-        */}
-        <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-[100]" ref={menuRef}>
-          <button 
-            onClick={() => setShowMenu(!showMenu)} 
-            className="w-10 h-10 flex items-center justify-center text-blue-900 bg-slate-100 rounded-full active:scale-95 transition touch-target"
+    <div className="flex flex-col h-full bg-white overflow-hidden scrollbar-hide" role="region" aria-label="Technician Dashboard">
+      {/* Header */}
+      <header className="h-14 px-4 md:px-8 bg-[#003399] text-white flex items-center justify-between border-b border-[#002d7a] shadow-sm shrink-0 relative">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            className="md:hidden w-10 h-10 flex items-center justify-center text-white bg-white/10 hover:bg-white/15 rounded-full active:scale-95 transition touch-target border border-white/20"
+            aria-label="Open dashboard navigation"
+          >
+            <i className="fas fa-bars text-lg"></i>
+          </button>
+
+          <div
+            className="w-10 h-10 overflow-hidden rounded-full flex items-center justify-center"
+            aria-hidden="true"
+          >
+            {AA2000_ICON}
+          </div>
+
+          <div className="font-black text-base md:text-lg whitespace-nowrap">Welcome, Developer</div>
+        </div>
+
+        {/* Settings dropdown */}
+        <div className="relative z-[110]" ref={menuRef}>
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="w-10 h-10 flex items-center justify-center text-white bg-white/10 hover:bg-white/15 rounded-full active:scale-95 transition touch-target border border-white/20"
             aria-label="Open settings menu"
             aria-haspopup="true"
             aria-expanded={showMenu}
           >
-            <i className={`fas ${showMenu ? 'fa-times' : 'fa-bars'} text-lg`}></i>
+            <i className={`fas ${showMenu ? 'fa-times' : 'fa-key'} text-lg`}></i>
           </button>
-          
+
           {showMenu && (
-            <div 
-              className="absolute right-0 mt-3 w-52 bg-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border-2 border-blue-900 overflow-hidden z-[110] animate-fade-in origin-top-right"
+            <div
+              className="absolute right-0 mt-3 w-52 bg-[#003399] text-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.45)] border border-white/20 overflow-hidden z-[110] animate-fade-in origin-top-right"
               role="menu"
             >
-              <button 
+              <button
                 role="menuitem"
                 onClick={() => { setShowMenu(false); setShowPasswordModal(true); }}
-                className="w-full px-5 py-4 text-left text-[10px] font-black text-slate-600 uppercase tracking-widest hover:bg-slate-50 flex items-center gap-3 transition-colors"
+                className="w-full px-5 py-4 text-left text-[10px] font-black text-white uppercase tracking-widest hover:bg-white/15 flex items-center gap-3 transition-colors"
               >
-                <i className="fas fa-key text-blue-900/30"></i>
+                <i className="fas fa-key text-white/80"></i>
                 Change Password
-              </button>
-              <div className="border-t border-slate-50"></div>
-              <button 
-                role="menuitem"
-                onClick={() => { setShowMenu(false); onLogout(); }}
-                className="w-full px-5 py-4 text-left text-[10px] font-black text-red-600 uppercase tracking-widest hover:bg-red-50 flex items-center gap-3 transition-colors"
-              >
-                <i className="fas fa-sign-out-alt"></i>
-                Logout
               </button>
             </div>
           )}
         </div>
-
-        <div className="scale-150 origin-center" aria-hidden="true">
-          {AA2000_LOGO}
-        </div>
       </header>
 
-      <main className="flex-1 flex flex-col justify-between pt-2 pb-6 px-6 md:pt-4 md:pb-12 md:px-12">
-        <div className="space-y-0.5 text-center pt-4 md:pt-8">
-          <h2 className="text-2xl md:text-4xl font-black text-blue-900">Welcome,</h2>
-          <p className="text-slate-500 font-bold uppercase tracking-tight break-words text-xs md:text-sm" aria-label={`Logged in as ${user.fullName}`}>{user.fullName}</p>
-        </div>
+      <div className="flex-1 min-h-0 flex">
+        {/* Mobile overlay */}
+        {mobileSidebarOpen && (
+          <div
+            className="md:hidden fixed inset-0 bg-black/30 z-[900]"
+            onClick={() => setMobileSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
 
-        <nav className="grid grid-cols-1 md:grid-cols-2 gap-1 md:gap-6 flex-1 items-center py-3 md:py-4" aria-label="Main Navigation">
-          <button 
-            onClick={onNewProject}
-            className="group flex flex-col items-center justify-center p-5 md:p-8 bg-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-xl hover:bg-blue-800 transition-all active:scale-95 text-white w-full"
-            aria-label="Start a new site survey project"
-          >
-            <div className="w-9 h-9 md:w-12 md:h-12 bg-white/20 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
-              <i className="fas fa-plus text-lg md:text-2xl"></i>
+        {/* Sidebar */}
+        <aside
+          className={`fixed md:static top-14 md:top-0 left-0 z-[901] h-[calc(100%-56px)] w-72 bg-white border-r border-slate-100 p-4 md:p-5 transition-transform duration-300 ease-in-out overflow-y-auto md:translate-x-0
+            ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          aria-label="Dashboard sidebar navigation"
+        >
+          <div className="flex flex-col h-full">
+            <nav className="flex-1 flex flex-col gap-2 pt-2" aria-label="Dashboard sections">
+              <button
+                type="button"
+                onClick={() => { setActiveSection('ONGOING'); setMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
+                  ${activeSection === 'ONGOING' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 hover:bg-slate-50'}`}
+                aria-current={activeSection === 'ONGOING' ? 'page' : undefined}
+              >
+                <i className={`fas fa-circle ${activeSection === 'ONGOING' ? 'text-blue-300' : 'text-blue-900/70'}`} aria-hidden="true"></i>
+                Ongoing
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveSection('UPCOMING'); setMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
+                  ${activeSection === 'UPCOMING' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 hover:bg-slate-50'}`}
+                aria-current={activeSection === 'UPCOMING' ? 'page' : undefined}
+              >
+                <i className={`fas fa-clock ${activeSection === 'UPCOMING' ? 'text-blue-300' : 'text-blue-900/70'}`} aria-hidden="true"></i>
+                Upcoming
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveSection('HISTORY'); setMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
+                  ${activeSection === 'HISTORY' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 hover:bg-slate-50'}`}
+                aria-current={activeSection === 'HISTORY' ? 'page' : undefined}
+              >
+                <i className={`fas fa-history ${activeSection === 'HISTORY' ? 'text-blue-300' : 'text-blue-900/70'}`} aria-hidden="true"></i>
+                History
+              </button>
+            </nav>
+
+            {/* Logout pinned to bottom */}
+            <div className="pt-6 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => { setMobileSidebarOpen(false); onLogout(); }}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-lg py-3 active:scale-[0.98] transition touch-target uppercase tracking-widest text-[10px]"
+                aria-label="Log out"
+              >
+                Logout
+              </button>
             </div>
-            <span className="text-sm md:text-base font-black tracking-tight uppercase">Create New Project</span>
-            <span className="text-blue-300 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">Start a fresh site survey</span>
-          </button>
+          </div>
+        </aside>
 
-          <button 
-            onClick={onCurrentProjects}
-            className="group flex flex-col items-center justify-center p-5 md:p-8 bg-white border-2 border-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-lg hover:bg-blue-50 transition-all active:scale-95 text-blue-900 w-full"
-            aria-label="View previously saved survey reports"
-          >
-            <div className="w-9 h-9 md:w-12 md:h-12 bg-blue-900/10 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
-              <i className="fas fa-folder-open text-lg md:text-2xl"></i>
+        {/* Main content */}
+        <main className="flex-1 min-h-0 overflow-y-auto px-6 md:px-12 py-6 md:py-10">
+          <div className="max-w-4xl mx-auto w-full">
+            <div className="space-y-2 pb-4">
+              <h1 className="text-2xl md:text-4xl font-black text-blue-900">
+                {activeSection === 'ONGOING' ? 'Ongoing' : activeSection === 'UPCOMING' ? 'Upcoming' : 'History'}
+              </h1>
             </div>
-            <span className="text-sm md:text-base font-black tracking-tight uppercase">Current Projects</span>
-            <span className="text-slate-500 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">View finalized survey reports</span>
-          </button>
-        </nav>
 
-        <footer className="pt-4 pb-6 md:pb-8 text-center text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
-          AA2000 SURVEY PROFESSIONAL
-        </footer>
-      </main>
+            <div className={activeSection === 'ONGOING' ? 'grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6' : 'grid grid-cols-1 gap-4'}>
+              {(activeSection === 'ONGOING' || activeSection === 'UPCOMING') && (
+                <button
+                  onClick={onNewProject}
+                  className="group flex flex-col items-center justify-center p-5 md:p-8 bg-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-xl hover:bg-blue-800 transition-all active:scale-95 text-white w-full"
+                  aria-label="Start a new site survey project"
+                >
+                  <div className="w-9 h-9 md:w-12 md:h-12 bg-white/20 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
+                    <i className="fas fa-plus text-lg md:text-2xl"></i>
+                  </div>
+                  <span className="text-sm md:text-base font-black tracking-tight uppercase">Create New Project</span>
+                  <span className="text-blue-300 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">Start a fresh site survey</span>
+                </button>
+              )}
+
+              {(activeSection === 'ONGOING' || activeSection === 'HISTORY') && (
+                <button
+                  onClick={onCurrentProjects}
+                  className="group flex flex-col items-center justify-center p-5 md:p-8 bg-white border-2 border-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-lg hover:bg-blue-50 transition-all active:scale-95 text-blue-900 w-full"
+                  aria-label="View previously saved survey reports"
+                >
+                  <div className="w-9 h-9 md:w-12 md:h-12 bg-blue-900/10 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
+                    <i className="fas fa-folder-open text-lg md:text-2xl"></i>
+                  </div>
+                  <span className="text-sm md:text-base font-black tracking-tight uppercase">Current Projects</span>
+                  <span className="text-slate-500 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">View finalized survey reports</span>
+                </button>
+              )}
+            </div>
+
+            <footer className="pt-8 md:pt-10 text-center text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
+              AA2000 SURVEY PROFESSIONAL
+            </footer>
+          </div>
+        </main>
+      </div>
 
       {/* 
           CHANGE PASSWORD MODAL
