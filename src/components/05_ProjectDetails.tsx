@@ -134,6 +134,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
     location: '',       // Physical address or specific site location
     locationName: '',   // Name of the project location (e.g. "Main Office", "Site A")
     startDate: '',
+    requiredTechnicians: 1,
     assignedTechnicians: [] as TechnicianOption[]
   });
   const [availableTechnicians, setAvailableTechnicians] = useState<TechnicianOption[]>([]);
@@ -153,6 +154,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
         location: initialData.location ?? '',
         locationName: initialData.locationName ?? '',
         startDate: initialData.startDate ?? '',
+        requiredTechnicians: initialData.requiredTechnicians ?? 1,
         assignedTechnicians: initialData.assignedTechnicians ?? []
       });
     }
@@ -201,7 +203,8 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
     details.clientEmail.trim() !== '' &&
     details.locationName.trim() !== '' &&
     details.startDate.trim() !== '' &&
-    details.assignedTechnicians.length > 0;
+    details.requiredTechnicians > 0 &&
+    details.assignedTechnicians.length >= details.requiredTechnicians;
 
   const computeStatus = (): 'In Progress' | 'Completed' => {
     if (!details.startDate) return initialData?.status || 'In Progress';
@@ -250,7 +253,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
     const payload: Project = {
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       ...details,
-      requiredTechnicians: details.assignedTechnicians.length,
+      requiredTechnicians: details.requiredTechnicians,
       status: computeStatus(),
       technicianName: initialData?.technicianName || (details.assignedTechnicians[0]?.fullName || user.fullName),
       assignedTechnicians: details.assignedTechnicians,
@@ -759,6 +762,17 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
           />
         </div>
 
+        <div>
+          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Required Manpower</label>
+          <input
+            type="number"
+            min={1}
+            value={details.requiredTechnicians}
+            onChange={(e) => setDetails((prev) => ({ ...prev, requiredTechnicians: Math.max(1, Number(e.target.value) || 1) }))}
+            className={`w-full bg-slate-50 border-2 px-4 py-3 rounded-xl text-slate-900 focus:outline-none transition font-bold text-xs ${showErrors && details.requiredTechnicians < 1 ? 'border-red-500' : 'border-slate-100 focus:border-blue-900'}`}
+          />
+        </div>
+
         <div className="md:col-span-2">
           <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Manpower Assignment</label>
           <div className="flex gap-2">
@@ -778,6 +792,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
                 const pick = availableTechnicians.find((t) => t.email === selectedTechnicianEmail);
                 if (!pick) return;
                 if (details.assignedTechnicians.some((t) => t.email === pick.email)) return;
+                if (details.assignedTechnicians.length >= details.requiredTechnicians) return;
                 setDetails((prev) => ({ ...prev, assignedTechnicians: [...prev.assignedTechnicians, pick] }));
                 setSelectedTechnicianEmail('');
               }}
@@ -801,8 +816,8 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
               </span>
             ))}
           </div>
-          {showErrors && details.assignedTechnicians.length === 0 && (
-            <p className="text-[9px] text-red-500 font-black mt-2 uppercase tracking-widest">Assign at least one technician</p>
+          {showErrors && details.assignedTechnicians.length < details.requiredTechnicians && (
+            <p className="text-[9px] text-red-500 font-black mt-2 uppercase tracking-widest">Assign technicians equal to required manpower</p>
           )}
         </div>
       </div>

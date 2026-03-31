@@ -22,6 +22,8 @@ export interface Project {
   locationName?: string;
   /** Project schedule start date (YYYY-MM-DD). */
   startDate?: string;
+  /** Project schedule end date (YYYY-MM-DD). */
+  endDate?: string;
   /** Assigned technicians for this project. */
   assignedTechnicians?: Array<{ fullName: string; email: string }>;
   /** Response per assigned technician email: ACCEPTED or DECLINED. */

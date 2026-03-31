@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User } from '../types';
+import { User, Project, SurveyType } from '../types';
 import { AA2000_ICON } from '../constants';
 
 interface Props {
   /** The authenticated user's profile information, containing fullName and email. */
   user: User;
-  /** Logic callback to reset survey buffers and navigate to the project initiation form. */
-  onNewProject: () => void;
-  /** Logic callback to navigate to the historical survey report database. */
-  onCurrentProjects: () => void;
+  /** The logged-in role for role-specific dashboard behavior. */
+  userRole: 'TECHNICIAN' | 'ADMIN' | null;
+  /** Logic callback to navigate Sales/Admin into project setup. */
+  onCreateProject: () => void;
+  /** Logic callback to open an existing project + selected survey for editing. */
+  onEditAuditFromList: (projectRecord: any, index: number, surveyType: SurveyType) => void;
   /** Logic callback to clear the local session and return to role selection. */
   onLogout: () => void;
 }
@@ -18,11 +20,16 @@ interface Props {
  * Purpose: This is the central operational hub for technicians. It provides 
  * high-level navigation to the core features of the site survey system.
  */
-const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onLogout }) => {
+const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAuditFromList, onLogout }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [activeSection, setActiveSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [savedProjects, setSavedProjects] = useState<Array<{ record: any; index: number }>>([]);
+  const [selectedRecord, setSelectedRecord] = useState<{ record: any; index: number } | null>(null);
+  const [editableProject, setEditableProject] = useState<Project | null>(null);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [showSystemModal, setShowSystemModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Password change states
@@ -47,6 +54,77 @@ const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onL
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const savedRaw = localStorage.getItem('aa2000_saved_projects');
+    const parsed = savedRaw ? JSON.parse(savedRaw) : [];
+    const visible = (userRole === 'ADMIN' ? parsed : parsed
+      .map((record: any, index: number) => ({ record, index }))
+      .filter((item: { record: any; index: number }) => {
+        const project = item.record?.project;
+        if (!project) return false;
+        const assigned = Array.isArray(project.assignedTechnicians) ? project.assignedTechnicians : [];
+        if (!assigned.length) return project.technicianName === user.fullName;
+        return assigned.some((t: any) => t.email === user.email || t.fullName === user.fullName);
+      }))
+      .map((record: any, index: number) => record.record ? record : { record, index });
+    setSavedProjects(visible);
+  }, [user.email, user.fullName, userRole]);
+
+  const resolveCategory = (project: Project): 'ONGOING' | 'UPCOMING' | 'HISTORY' => {
+    if (project.status === 'Completed') return 'HISTORY';
+    if (!project.startDate) return 'ONGOING';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(project.startDate);
+    start.setHours(0, 0, 0, 0);
+    if (start.getTime() > today.getTime()) return 'UPCOMING';
+    return 'ONGOING';
+  };
+
+  const filteredProjects = savedProjects.filter(({ record }) => resolveCategory(record.project) === activeSection);
+
+  const getTechnicianResponse = (project: Project): 'ACCEPTED' | 'DECLINED' | null => {
+    if (!project.technicianResponses) return null;
+    return project.technicianResponses[user.email] || null;
+  };
+
+  const openProjectModal = (record: any, index: number) => {
+    setSelectedRecord({ record, index });
+    setEditableProject({ ...record.project });
+    setShowProjectModal(true);
+  };
+
+  const handleTechnicianResponse = (index: number, response: 'ACCEPTED' | 'DECLINED') => {
+    const raw = localStorage.getItem('aa2000_saved_projects');
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!parsed[index]?.project) return;
+    const project = parsed[index].project;
+    if (project.technicianResponses?.[user.email]) return;
+    const nextResponses = { ...(project.technicianResponses || {}), [user.email]: response };
+    parsed[index] = {
+      ...parsed[index],
+      project: { ...project, technicianResponses: nextResponses },
+    };
+    localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+    setSavedProjects((prev) => prev.map((item) => item.index === index
+      ? { ...item, record: { ...item.record, project: { ...item.record.project, technicianResponses: nextResponses } } }
+      : item
+    ));
+  };
+
+  const closeProjectModal = () => {
+    setShowProjectModal(false);
+    setShowSystemModal(false);
+    setSelectedRecord(null);
+    setEditableProject(null);
+  };
+
+  const proceedToSurvey = (type: SurveyType) => {
+    if (!selectedRecord || !editableProject) return;
+    onEditAuditFromList(selectedRecord.record, selectedRecord.index, type);
+    closeProjectModal();
+  };
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,6 +239,17 @@ const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onL
         >
           <div className="flex flex-col h-full">
             <nav className="flex-1 flex flex-col gap-2 pt-2" aria-label="Dashboard sections">
+              {userRole === 'ADMIN' && (
+                <button
+                  type="button"
+                  onClick={() => { onCreateProject(); setMobileSidebarOpen(false); }}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition text-blue-900 hover:bg-slate-50"
+                >
+                  <i className="fas fa-plus-circle text-blue-900/70" aria-hidden="true"></i>
+                  Create Project
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => { setActiveSection('ONGOING'); setMobileSidebarOpen(false); }}
@@ -218,34 +307,96 @@ const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onL
               </h1>
             </div>
 
-            <div className={activeSection === 'ONGOING' ? 'grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6' : 'grid grid-cols-1 gap-4'}>
-              {(activeSection === 'ONGOING' || activeSection === 'UPCOMING') && (
-                <button
-                  onClick={onNewProject}
-                  className="group flex flex-col items-center justify-center p-5 md:p-8 bg-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-xl hover:bg-blue-800 transition-all active:scale-95 text-white w-full"
-                  aria-label="Start a new site survey project"
-                >
-                  <div className="w-9 h-9 md:w-12 md:h-12 bg-white/20 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
-                    <i className="fas fa-plus text-lg md:text-2xl"></i>
-                  </div>
-                  <span className="text-sm md:text-base font-black tracking-tight uppercase">Create New Project</span>
-                  <span className="text-blue-300 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">Start a fresh site survey</span>
-                </button>
+            <div className="space-y-3">
+              {filteredProjects.length === 0 && (
+                <div className="p-6 border-2 border-dashed border-slate-200 rounded-2xl text-center">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">No projects in this category</p>
+                </div>
               )}
+              {filteredProjects.map(({ record, index }) => {
+                const project = record.project as Project;
+                const assignedCount = project.assignedTechnicians?.length || project.requiredTechnicians || 0;
+                const myResponse = getTechnicianResponse(project);
+                return (
+                  <div
+                    key={`${project.id}-${index}`}
+                    className="w-full p-5 bg-white border border-slate-200 rounded-2xl shadow-sm text-left"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-black text-blue-900 uppercase">{project.name || 'Untitled Project'}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">{project.clientName || 'No client'} · {project.locationName || project.location || 'No location'}</p>
+                      </div>
+                      <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-900">
+                        {activeSection}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+                      <div className="bg-slate-50 rounded-xl px-3 py-2">
+                        <p className="text-slate-400 font-black uppercase">Date</p>
+                        <p className="text-slate-700 font-bold mt-0.5">{project.startDate || '—'}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
+                        <p className="text-slate-400 font-black uppercase">Technicians</p>
+                        <p className="text-slate-700 font-bold mt-0.5">{assignedCount}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
+                        <p className="text-slate-400 font-black uppercase">Status</p>
+                        <p className="text-slate-700 font-bold mt-0.5">{project.status || 'In Progress'}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
+                        <p className="text-slate-400 font-black uppercase">Assigned</p>
+                        <p className="text-slate-700 font-bold mt-0.5">{(project.assignedTechnicians || []).map((t) => t.fullName).join(', ') || '—'}</p>
+                      </div>
+                    </div>
 
-              {(activeSection === 'ONGOING' || activeSection === 'HISTORY') && (
-                <button
-                  onClick={onCurrentProjects}
-                  className="group flex flex-col items-center justify-center p-5 md:p-8 bg-white border-2 border-blue-900 rounded-2xl md:rounded-[2.5rem] shadow-lg hover:bg-blue-50 transition-all active:scale-95 text-blue-900 w-full"
-                  aria-label="View previously saved survey reports"
-                >
-                  <div className="w-9 h-9 md:w-12 md:h-12 bg-blue-900/10 rounded-xl md:rounded-2xl flex items-center justify-center mb-1.5 md:mb-2 group-hover:scale-110 transition" aria-hidden="true">
-                    <i className="fas fa-folder-open text-lg md:text-2xl"></i>
+                    {userRole === 'TECHNICIAN' && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={myResponse != null}
+                          onClick={() => handleTechnicianResponse(index, 'ACCEPTED')}
+                          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition ${myResponse === 'ACCEPTED' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100'} ${myResponse != null ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          disabled={myResponse != null}
+                          onClick={() => handleTechnicianResponse(index, 'DECLINED')}
+                          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition ${myResponse === 'DECLINED' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'} ${myResponse != null ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          Decline
+                        </button>
+                        <button
+                          type="button"
+                          disabled={myResponse !== 'ACCEPTED'}
+                          onClick={() => openProjectModal(record, index)}
+                          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition ${myResponse === 'ACCEPTED' ? 'bg-blue-900 text-white hover:bg-blue-800' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
+                        >
+                          Start Audit
+                        </button>
+                      </div>
+                    )}
+
+                    {userRole === 'ADMIN' && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(project.assignedTechnicians || []).map((tech) => {
+                          const res = project.technicianResponses?.[tech.email];
+                          return (
+                            <span
+                              key={tech.email}
+                              className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${res === 'ACCEPTED' ? 'bg-green-50 text-green-700' : res === 'DECLINED' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500'}`}
+                            >
+                              {tech.fullName}: {res || 'Pending'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <span className="text-sm md:text-base font-black tracking-tight uppercase">Current Projects</span>
-                  <span className="text-slate-500 text-[9px] md:text-[10px] mt-0.5 uppercase tracking-wider">View finalized survey reports</span>
-                </button>
-              )}
+                );
+              })}
             </div>
 
             <footer className="pt-8 md:pt-10 text-center text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
@@ -334,6 +485,91 @@ const Dashboard: React.FC<Props> = ({ user, onNewProject, onCurrentProjects, onL
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {userRole === 'TECHNICIAN' && showProjectModal && editableProject && (
+        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+          <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
+            <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
+              <h3 className="font-black uppercase tracking-widest text-xs md:text-sm">Project Details</h3>
+              <button onClick={closeProjectModal} className="text-slate-400 hover:text-blue-900 transition touch-target" aria-label="Close modal">
+                <i className="fas fa-times text-lg"></i>
+              </button>
+            </div>
+
+            <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 overflow-y-auto max-h-[70vh] md:max-h-[65vh]">
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Project Name</label>
+                <div className="w-full bg-slate-50 border-2 border-slate-100 px-4 py-3 rounded-xl text-slate-900 font-bold text-xs">{editableProject.name || '—'}</div>
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Client Name</label>
+                <div className="w-full bg-slate-50 border-2 border-slate-100 px-4 py-3 rounded-xl text-slate-900 font-bold text-xs">{editableProject.clientName || '—'}</div>
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Project Location</label>
+                <div className="w-full bg-slate-50 border-2 border-slate-100 px-4 py-3 rounded-xl text-slate-900 font-bold text-xs">{editableProject.locationName || editableProject.location || '—'}</div>
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Date</label>
+                <div className="w-full bg-slate-50 border-2 border-slate-100 px-4 py-3 rounded-xl text-slate-900 font-bold text-xs">{editableProject.startDate || '—'}</div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1 ml-1">Assigned Technicians</label>
+                <div className="w-full bg-slate-50 border-2 border-slate-100 px-4 py-3 rounded-xl text-slate-900 font-bold text-xs">{(editableProject.assignedTechnicians || []).map((t) => t.fullName).join(', ') || '—'}</div>
+              </div>
+            </div>
+
+            <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-100 shrink-0 flex flex-col md:flex-row gap-2">
+              <button onClick={() => setShowSystemModal(true)} className="w-full md:flex-1 py-3 rounded-xl bg-blue-900 text-white text-[10px] font-black uppercase tracking-widest hover:bg-blue-800 transition">
+                Select Survey System
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {userRole === 'TECHNICIAN' && showProjectModal && showSystemModal && (
+        <div className="fixed inset-0 z-[400] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
+            <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
+              <h3 id="modal-title" className="font-black uppercase tracking-widest text-xs md:text-sm">Choose System to Audit</h3>
+              <button onClick={() => setShowSystemModal(false)} className="text-slate-400 hover:text-blue-900 transition touch-target" aria-label="Close modal">
+                <i className="fas fa-times text-lg"></i>
+              </button>
+            </div>
+            <div className="p-6 md:p-8 grid grid-cols-2 gap-3 md:gap-4 overflow-y-auto max-h-[70vh] md:max-h-[65vh]">
+              {[
+                { type: SurveyType.CCTV, label: 'CCTV System', desc: 'Video Surveillance Audit', icon: 'fa-camera' },
+                { type: SurveyType.FIRE_ALARM, label: 'Fire Alarm', desc: 'Safety & Detection Audit', icon: 'fa-fire-extinguisher' },
+                { type: SurveyType.FIRE_PROTECTION, label: 'Fire Protection', desc: 'Suppression & Sprinkler Audit', icon: 'fa-shield-heart' },
+                { type: SurveyType.ACCESS_CONTROL, label: 'Access Control', desc: 'Entry & Door Security Audit', icon: 'fa-id-card-clip' },
+                { type: SurveyType.BURGLAR_ALARM, label: 'Burglar Alarm', desc: 'Intrusion Detection Audit', icon: 'fa-shield-halved' },
+                { type: SurveyType.OTHER, label: 'Other', desc: 'Custom Technological Service', icon: 'fa-ellipsis-h' }
+              ].map(item => (
+                <button
+                  key={item.type}
+                  onClick={() => proceedToSurvey(item.type)}
+                  className="w-full p-5 md:p-6 rounded-2xl flex items-center justify-between border-2 border-blue-900/10 hover:border-blue-900 hover:bg-blue-50 text-blue-900 transition-all active:scale-95 group shadow-sm bg-white"
+                >
+                  <div className="text-left">
+                    <p className="font-black text-lg md:text-xl uppercase leading-none">{item.label}</p>
+                    <p className="text-[10px] md:text-xs text-slate-500 font-bold mt-1">{item.desc}</p>
+                  </div>
+                  <i className={`fas ${item.icon} text-2xl md:text-3xl opacity-10 group-hover:opacity-30 transition-opacity`} aria-hidden="true"></i>
+                </button>
+              ))}
+            </div>
+            <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-100 text-center shrink-0">
+              <button
+                onClick={() => setShowSystemModal(false)}
+                className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.2em] hover:text-blue-900 transition py-2 px-4"
+              >
+                Cancel Selection
+              </button>
+            </div>
           </div>
         </div>
       )}
