@@ -209,7 +209,9 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
             {AA2000_ICON}
           </div>
 
-          <div className="font-black text-base md:text-lg whitespace-nowrap">Welcome, Developer</div>
+          <div className="font-black text-base md:text-lg whitespace-nowrap">
+            Welcome, {userRole === 'ADMIN' ? 'SALE & ADMIN' : 'Developer'}
+          </div>
         </div>
 
         {/* Settings dropdown */}
@@ -546,7 +548,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
       )}
 
       {userRole === 'TECHNICIAN' && showProjectModal && editableProject && (
-        <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+        <div className="fixed inset-0 md:inset-y-0 md:left-72 md:right-0 z-[300] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in">
           <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
             <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
               <h3 className="font-black uppercase tracking-widest text-xs md:text-sm">Project Details</h3>
@@ -588,7 +590,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
       )}
 
       {userRole === 'TECHNICIAN' && showProjectModal && showSystemModal && (
-        <div className="fixed inset-0 z-[400] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div className="fixed inset-0 md:inset-y-0 md:left-72 md:right-0 z-[400] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
             <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
               <h3 id="modal-title" className="font-black uppercase tracking-widest text-xs md:text-sm">Choose System to Audit</h3>
