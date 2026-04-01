@@ -524,7 +524,7 @@ const App: React.FC = () => {
                   <i className="fas fa-briefcase text-xl"></i>
                 </div>
                 <span className="text-lg font-black tracking-tight uppercase text-center">Sales &amp; Admin</span>
-                <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">Reports &amp; Remarks</span>
+                <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">Reports • Remarks • Create New Project Button</span>
               </button>
             </div>
 
@@ -567,7 +567,11 @@ const App: React.FC = () => {
         return (
           <Dashboard 
             user={user!}
+<<<<<<< Updated upstream
             userRole={userRole}
+=======
+            userRole={userRole!}
+>>>>>>> Stashed changes
             onNewProject={() => {
               setActiveProject(null);
               setCctvData(null);
