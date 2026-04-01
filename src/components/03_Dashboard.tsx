@@ -5,9 +5,15 @@ import { AA2000_ICON } from '../constants';
 interface Props {
   /** The authenticated user's profile information, containing fullName and email. */
   user: User;
+<<<<<<< Updated upstream
   /** Active authenticated role to customize dashboard actions. */
   userRole: 'TECHNICIAN' | 'ADMIN' | null;
   /** Logic callback to reset survey buffers and navigate to project initiation. */
+=======
+  /** Current authenticated role (Technician vs Sales/Admin). */
+  userRole: 'TECHNICIAN' | 'ADMIN';
+  /** Logic callback to reset survey buffers and navigate to the project initiation form. */
+>>>>>>> Stashed changes
   onNewProject: () => void;
   /** Logic callback to navigate to the historical survey report database. */
   onCurrentProjects: () => void;
@@ -22,7 +28,11 @@ interface Props {
  * Purpose: This is the central operational hub for technicians. It provides 
  * high-level navigation to the core features of the site survey system.
  */
+<<<<<<< Updated upstream
 const Dashboard: React.FC<Props> = ({ user, userRole, onNewProject, onCurrentProjects, onLogout, onEditProjectFromDashboard }) => {
+=======
+const Dashboard: React.FC<Props> = ({ user, userRole, onNewProject, onCurrentProjects, onLogout }) => {
+>>>>>>> Stashed changes
   const [showMenu, setShowMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [activeSection, setActiveSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
@@ -215,7 +225,9 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onNewProject, onCurrentPro
             {AA2000_ICON}
           </div>
 
-          <div className="font-black text-base md:text-lg whitespace-nowrap">Welcome, Developer</div>
+          <div className="font-black text-base md:text-lg whitespace-nowrap">
+            {userRole === 'ADMIN' ? 'SALE & ADMIN' : `Welcome, ${user.fullName || 'Technician'}`}
+          </div>
         </div>
 
         {/* Settings dropdown */}
