@@ -16,6 +16,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -101,6 +102,11 @@
     min-width: 44px;
     min-height: 44px;
   }
+
+  /* Compact UI: slightly smaller root font size (Tailwind rem scale) */
+  html.compact-ui {
+    font-size: 14px;
+  }
 </style>
 <script type="importmap">
 {
@@ -112,10 +118,10 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="/assets/index-CkeNbbQB.js"></script>
+  <script type="module" crossorigin src="/assets/index-DZHMKqT0.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-Dy3kqfxH.css">
 </head>
-<body class="bg-white text-slate-900">
-  <div id="root" role="main"></div>
+<body class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300">
+  <div id="root" role="main"></div>
 </body>
 </html>

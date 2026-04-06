@@ -1,20 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, Project, SurveyType } from '../types';
-import { AA2000_ICON } from '../constants';
+import type { ThemeMode } from './18_Profile';
+import PortalLayout, { PortalNavKey } from './19_PortalLayout';
+import { notifyAdminsTechnicianResponse, notifyTechniciansProjectFinalized } from '../utils/inAppNotifications';
 
 interface Props {
   /** The authenticated user's profile information, containing fullName and email. */
   user: User;
   /** The logged-in role for role-specific dashboard behavior. */
   userRole: 'TECHNICIAN' | 'ADMIN' | null;
-  /** Logic callback to navigate Sales/Admin into project setup. */
-  onCreateProject: () => void;
+  theme: ThemeMode;
+  onThemeChange: (mode: ThemeMode) => void;
+  compactMode: boolean;
+  onCompactModeChange: (compact: boolean) => void;
+  /** Active workspace tab (ongoing / upcoming / history). Owned by App for sidebar sync. */
+  workspaceSection: 'ONGOING' | 'UPCOMING' | 'HISTORY';
+  /** Sidebar / workspace navigation (ongoing, create, finalized, etc.). */
+  onPortalNavigate: (key: PortalNavKey) => void;
   /** Logic callback to open an existing project + selected survey for editing. */
   onEditAuditFromList: (projectRecord: any, index: number, surveyType: SurveyType) => void;
   /** Opens report summary for Sales/Admin review. */
   onOpenSummaryFromList: (projectRecord: any, index: number) => void;
-  /** Sales/Admin: open the finalized reports archive (/projects). */
-  onOpenFinalizedReports: () => void;
   /** Open account profile and settings. */
   onOpenProfile: () => void;
   /** Logic callback to clear the local session and return to role selection. */
@@ -26,31 +32,26 @@ interface Props {
  * Purpose: This is the central operational hub for technicians. It provides 
  * high-level navigation to the core features of the site survey system.
  */
-const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAuditFromList, onOpenSummaryFromList, onOpenFinalizedReports, onOpenProfile, onLogout }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  const [activeSection, setActiveSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+const Dashboard: React.FC<Props> = ({
+  user,
+  userRole,
+  theme,
+  onThemeChange,
+  compactMode,
+  onCompactModeChange,
+  workspaceSection,
+  onPortalNavigate,
+  onEditAuditFromList,
+  onOpenSummaryFromList,
+  onOpenProfile,
+  onLogout,
+}) => {
+  const activeSection = workspaceSection;
   const [savedProjects, setSavedProjects] = useState<Array<{ record: any; index: number }>>([]);
   const [selectedRecord, setSelectedRecord] = useState<{ record: any; index: number } | null>(null);
   const [editableProject, setEditableProject] = useState<Project | null>(null);
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [showSystemModal, setShowSystemModal] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  /**
-   * EFFECT: Outside Click Handler
-   * Logic: Closes the dropdown menu if a click occurs outside the menu container.
-   */
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   useEffect(() => {
     const savedRaw = localStorage.getItem('aa2000_saved_projects');
     const parsed = savedRaw ? JSON.parse(savedRaw) : [];
@@ -107,6 +108,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
       ? { ...item, record: { ...item.record, project: { ...item.record.project, technicianResponses: nextResponses } } }
       : item
     ));
+    notifyAdminsTechnicianResponse(project, user.fullName || user.email, response);
   };
 
   const closeProjectModal = () => {
@@ -120,9 +122,10 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
     const raw = localStorage.getItem('aa2000_saved_projects');
     const parsed = raw ? JSON.parse(raw) : [];
     if (!parsed[index]?.project) return;
+    const nextProject = { ...parsed[index].project, status };
     parsed[index] = {
       ...parsed[index],
-      project: { ...parsed[index].project, status },
+      project: nextProject,
     };
     localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
     setSavedProjects((prev) =>
@@ -132,6 +135,9 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
           : item
       )
     );
+    if (status === 'Finalized' || status === 'Rejected') {
+      notifyTechniciansProjectFinalized(nextProject, status);
+    }
   };
 
   const proceedToSurvey = (type: SurveyType) => {
@@ -140,163 +146,26 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
     closeProjectModal();
   };
 
+  const activeNav: PortalNavKey =
+    activeSection === 'ONGOING' ? 'ongoing' : activeSection === 'UPCOMING' ? 'upcoming' : 'history';
+
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-950 overflow-hidden scrollbar-hide" role="region" aria-label="Technician Dashboard">
-      {/* Header */}
-      <header className="h-14 px-4 md:px-8 bg-[#003399] text-white flex items-center justify-between border-b border-[#002d7a] shadow-sm shrink-0 relative">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            className="md:hidden w-10 h-10 flex items-center justify-center text-white bg-white/10 hover:bg-white/15 rounded-full active:scale-95 transition touch-target border border-white/20"
-            aria-label="Open dashboard navigation"
-          >
-            <i className="fas fa-bars text-lg"></i>
-          </button>
-
-          <div
-            className="w-10 h-10 overflow-hidden rounded-full flex items-center justify-center"
-            aria-hidden="true"
-          >
-            {AA2000_ICON}
-          </div>
-
-          <div className="font-black text-base md:text-lg whitespace-nowrap">
-            Welcome, {userRole === 'ADMIN' ? 'SALE & ADMIN' : 'Developer'}
-          </div>
-        </div>
-
-        {/* Settings dropdown */}
-        <div className="relative z-[110]" ref={menuRef}>
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="w-10 h-10 flex items-center justify-center text-white bg-white/10 hover:bg-white/15 rounded-full active:scale-95 transition touch-target border border-white/20"
-            aria-label="Open account menu"
-            aria-haspopup="true"
-            aria-expanded={showMenu}
-          >
-            <i className={`fas ${showMenu ? 'fa-times' : 'fa-user-cog'} text-lg`}></i>
-          </button>
-
-          {showMenu && (
-            <div
-              className="absolute right-0 mt-3 w-56 bg-[#003399] text-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.45)] border border-white/20 overflow-hidden z-[110] animate-fade-in origin-top-right"
-              role="menu"
-            >
-              <button
-                role="menuitem"
-                type="button"
-                title="Manage account settings, appearance, security, and notifications"
-                onClick={() => { setShowMenu(false); onOpenProfile(); }}
-                className="w-full px-5 py-4 text-left text-[10px] font-black text-white uppercase tracking-widest hover:bg-white/15 flex items-center gap-3 transition-colors"
-              >
-                <i className="fas fa-id-card text-white/80" aria-hidden="true"></i>
-                Profile &amp; settings
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <div className="flex-1 min-h-0 flex">
-        {/* Mobile overlay */}
-        {mobileSidebarOpen && (
-          <div
-            className="md:hidden fixed inset-0 bg-black/30 z-[900]"
-            onClick={() => setMobileSidebarOpen(false)}
-            aria-hidden="true"
-          />
-        )}
-
-        {/* Sidebar */}
-        <aside
-          className={`fixed md:static top-14 md:top-0 left-0 z-[901] h-[calc(100%-56px)] w-72 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800 p-4 md:p-5 transition-transform duration-300 ease-in-out overflow-y-auto md:translate-x-0
-            ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-          aria-label="Dashboard sidebar navigation"
-        >
-          <div className="flex flex-col h-full">
-            <nav className="flex-1 flex flex-col gap-2 pt-2" aria-label="Dashboard sections">
-              <button
-                type="button"
-                onClick={() => { onOpenProfile(); setMobileSidebarOpen(false); }}
-                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <i className="fas fa-user-cog text-blue-900/70 dark:text-blue-400/80" aria-hidden="true"></i>
-                Profile &amp; settings
-              </button>
-              {userRole === 'ADMIN' && (
-                <button
-                  type="button"
-                  onClick={() => { onCreateProject(); setMobileSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <i className="fas fa-plus-circle text-blue-900/70 dark:text-blue-400/80" aria-hidden="true"></i>
-                  Create Project
-                </button>
-              )}
-
-              {userRole === 'ADMIN' && (
-                <button
-                  type="button"
-                  onClick={() => { onOpenFinalizedReports(); setMobileSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <i className="fas fa-file-contract text-blue-900/70 dark:text-blue-400/80" aria-hidden="true"></i>
-                  Finalized Reports
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => { setActiveSection('ONGOING'); setMobileSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
-                  ${activeSection === 'ONGOING' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                aria-current={activeSection === 'ONGOING' ? 'page' : undefined}
-              >
-                <i className={`fas fa-circle ${activeSection === 'ONGOING' ? 'text-blue-300' : 'text-blue-900/70 dark:text-blue-400/70'}`} aria-hidden="true"></i>
-                Ongoing
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setActiveSection('UPCOMING'); setMobileSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
-                  ${activeSection === 'UPCOMING' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                aria-current={activeSection === 'UPCOMING' ? 'page' : undefined}
-              >
-                <i className={`fas fa-clock ${activeSection === 'UPCOMING' ? 'text-blue-300' : 'text-blue-900/70 dark:text-blue-400/70'}`} aria-hidden="true"></i>
-                Upcoming
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setActiveSection('HISTORY'); setMobileSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-black uppercase tracking-widest transition
-                  ${activeSection === 'HISTORY' ? 'bg-blue-900 text-white shadow-sm' : 'text-blue-900 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                aria-current={activeSection === 'HISTORY' ? 'page' : undefined}
-              >
-                <i className={`fas fa-history ${activeSection === 'HISTORY' ? 'text-blue-300' : 'text-blue-900/70 dark:text-blue-400/70'}`} aria-hidden="true"></i>
-                History
-              </button>
-            </nav>
-
-            {/* Logout pinned to bottom */}
-            <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => { setMobileSidebarOpen(false); onLogout(); }}
-                className="w-full bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-lg py-3 active:scale-[0.98] transition touch-target uppercase tracking-widest text-[10px]"
-                aria-label="Log out"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main content */}
-        <main className="flex-1 min-h-0 overflow-y-auto px-6 md:px-12 py-6 md:py-10 dark:bg-slate-950">
-          <div className="max-w-4xl mx-auto w-full">
+    <>
+      <PortalLayout
+        user={user}
+        userRole={userRole}
+        theme={theme}
+        onThemeChange={onThemeChange}
+        compactMode={compactMode}
+        onCompactModeChange={onCompactModeChange}
+        activeNav={activeNav}
+        onNavigate={onPortalNavigate}
+        onOpenProfile={onOpenProfile}
+        onLogout={onLogout}
+        headerTitle="Dashboard"
+      >
+        <div className="scrollbar-hide mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-10" role="region" aria-label="Dashboard">
+          <div className="w-full">
             <div className="space-y-2 pb-4">
               <h1 className="text-2xl md:text-4xl font-black text-blue-900 dark:text-blue-400">
                 {activeSection === 'ONGOING' ? 'Ongoing' : activeSection === 'UPCOMING' ? 'Upcoming' : 'History'}
@@ -434,11 +303,11 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
               AA2000 SURVEY PROFESSIONAL
             </footer>
           </div>
-        </main>
-      </div>
+        </div>
+      </PortalLayout>
 
       {userRole === 'TECHNICIAN' && showProjectModal && editableProject && (
-        <div className="fixed inset-0 md:inset-y-0 md:left-72 md:right-0 z-[300] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+        <div className="fixed inset-0 md:inset-y-0 md:left-64 md:right-0 z-[300] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in">
           <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
             <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
               <h3 className="font-black uppercase tracking-widest text-xs md:text-sm">Project Details</h3>
@@ -480,7 +349,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
       )}
 
       {userRole === 'TECHNICIAN' && showProjectModal && showSystemModal && (
-        <div className="fixed inset-0 md:inset-y-0 md:left-72 md:right-0 z-[400] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div className="fixed inset-0 md:inset-y-0 md:left-64 md:right-0 z-[400] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 md:p-8 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div className="bg-white w-full max-w-sm md:max-w-4xl md:max-h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in flex flex-col">
             <div className="p-6 md:p-8 bg-white text-blue-900 flex justify-between items-center shrink-0 border-b border-slate-100">
               <h3 id="modal-title" className="font-black uppercase tracking-widest text-xs md:text-sm">Choose System to Audit</h3>
@@ -544,7 +413,7 @@ const Dashboard: React.FC<Props> = ({ user, userRole, onCreateProject, onEditAud
         }
         .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
       `}</style>
-    </div>
+    </>
   );
 };
 

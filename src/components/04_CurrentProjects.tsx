@@ -1,16 +1,25 @@
-
 import React, { useEffect, useState } from 'react';
 import SurveySummary from './15_SurveySummary';
 import { User, SurveyType } from '../types';
-import { downloadBoqPdf } from './17_BOQ';
+import type { ThemeMode } from './18_Profile';
+import PortalLayout, { PortalNavKey } from './19_PortalLayout';
+import { downloadFinalizedReportPdf } from '../utils/finalizedReportPdf';
 
 interface Props {
   user: User | null;
   userRole: 'TECHNICIAN' | 'ADMIN' | null;
+  theme: ThemeMode;
+  onThemeChange: (mode: ThemeMode) => void;
+  compactMode: boolean;
+  onCompactModeChange: (compact: boolean) => void;
+  onPortalNavigate: (key: PortalNavKey) => void;
+  onOpenProfile: () => void;
+  onLogout: () => void;
   onBack: () => void;
   onViewProject: (project: any) => void;
   onEditProject: (project: any, index: number) => void;
   onEditAuditFromList?: (projectRecord: any, index: number, surveyType: SurveyType) => void;
+  onGoToDashboardSection?: (section: 'ONGOING' | 'UPCOMING' | 'HISTORY') => void;
 }
 
 /**
@@ -18,7 +27,19 @@ interface Props {
  * Purpose: A searchable archive of all finalized survey reports stored on the device.
  * Logic: Fetches data from localStorage and implements a manual coordinate-based PDF export.
  */
-const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditFromList }) => {
+const CurrentProjects: React.FC<Props> = ({
+  user,
+  userRole,
+  theme,
+  onThemeChange,
+  compactMode,
+  onCompactModeChange,
+  onPortalNavigate,
+  onOpenProfile,
+  onLogout,
+  onBack,
+  onEditAuditFromList,
+}) => {
   // --- COMPONENT STATE ---
   const [projects, setProjects] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,13 +130,14 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
    */
   const handleDownloadPDF = async () => {
     if (!selectedProject || sending) return;
+    if (selectedProject.project?.status !== 'Finalized') return;
     setSending(true);
 
     try {
-      await downloadBoqPdf(selectedProject);
+      downloadFinalizedReportPdf(selectedProject);
     } catch (error) {
-      console.error("DOCX generation failed:", error);
-      alert("A critical error occurred while generating the Word document. Please check data quality.");
+      console.error('PDF generation failed:', error);
+      alert('Could not generate the PDF. Please try again.');
     } finally {
       setSending(false);
     }
@@ -211,26 +233,44 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
     const isOwner = userRole === 'TECHNICIAN' && user?.fullName === selectedProject.project.technicianName;
     // Sales/Admin should not be able to delete final reports from the list view.
     const canDelete = isOwner;
+    const isFinalized = selectedProject.project?.status === 'Finalized';
     return (
       <div className="flex flex-col h-full bg-white dark:bg-slate-950 animate-fade-in overflow-hidden">
-        <header className="p-4 bg-blue-900 text-white flex items-center justify-between shadow-lg shrink-0 z-30">
-          <button onClick={() => { setShowDeleteProjectConfirm(false); setSelectedProject(null); }} className="flex items-center gap-2">
-            <i className="fas fa-arrow-left"></i>
-            <span className="font-black text-sm uppercase tracking-tight">List</span>
+        <header className="relative z-30 flex shrink-0 items-start justify-between gap-3 border-b border-slate-800 bg-[#0a1628] p-4 text-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => { setShowDeleteProjectConfirm(false); setSelectedProject(null); }}
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-xs font-black uppercase tracking-tight hover:bg-white/10"
+          >
+            <i className="fas fa-arrow-left" aria-hidden="true"></i>
+            List
           </button>
-          <div className="flex gap-2">
+          <div className="min-w-0 flex-1 pt-0.5 text-right">
+            <h2 className="truncate text-[10px] font-black uppercase tracking-widest text-blue-200/90">Finalized report</h2>
+            <p className="truncate text-sm font-bold text-white">{selectedProject.project?.name || 'Project'}</p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
             {canDelete && (
               <button
+                type="button"
                 onClick={() => setShowDeleteProjectConfirm(true)}
-                className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-black text-[10px] uppercase shadow-md active:scale-95 transition"
+                className="rounded-xl bg-red-600 px-3 py-2 text-[10px] font-black uppercase shadow-md transition hover:bg-red-500 active:scale-95"
               >
-                <i className="fas fa-trash mr-1"></i> Delete
+                <i className="fas fa-trash mr-1" aria-hidden="true"></i> Delete
               </button>
             )}
-            <button onClick={handleDownloadPDF} disabled={sending} className={`bg-amber-500 text-blue-900 px-3 py-2 rounded-lg font-black text-[10px] uppercase shadow-md active:scale-95 transition flex items-center gap-1.5 ${sending ? 'opacity-75' : ''}`}>
-              {sending ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-file-word"></i>}
-              {sending ? 'Generating...' : 'Download (.docx)'}
-            </button>
+            {isFinalized && userRole === 'ADMIN' && (
+              <button
+                type="button"
+                title="Download finalized project report (PDF)."
+                onClick={handleDownloadPDF}
+                disabled={sending}
+                className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md transition hover:bg-blue-500 active:scale-[0.98] disabled:opacity-70 ${sending ? 'cursor-wait' : ''}`}
+              >
+                {sending ? <i className="fas fa-circle-notch animate-spin" aria-hidden="true"></i> : <i className="fas fa-file-pdf" aria-hidden="true"></i>}
+                {sending ? 'Generating…' : 'Download PDF'}
+              </button>
+            )}
           </div>
         </header>
         <div className="flex-1 overflow-y-auto">
@@ -284,14 +324,34 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
 
   // UI RENDERING - Project List Home
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-950 overflow-hidden">
-      <header className="p-4 bg-[#003399] text-white flex items-center shadow-lg shrink-0 z-20">
-        <button onClick={onBack} className="mr-4"><i className="fas fa-arrow-left text-lg"></i></button>
-        <h2 className="text-lg font-black uppercase tracking-tight">FINALIZED REPORTS</h2>
-      </header>
-      
+    <PortalLayout
+      user={user!}
+      userRole={userRole}
+      theme={theme}
+      onThemeChange={onThemeChange}
+      compactMode={compactMode}
+      onCompactModeChange={onCompactModeChange}
+      activeNav="finalized"
+      onNavigate={onPortalNavigate}
+      onOpenProfile={onOpenProfile}
+      onLogout={onLogout}
+      headerTitle="Finalized reports"
+    >
+      <div className="flex min-h-full flex-col overflow-hidden bg-white dark:bg-slate-950">
+      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+        <button
+          type="button"
+          onClick={onBack}
+          className="touch-target flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          aria-label="Back to dashboard"
+        >
+          <i className="fas fa-arrow-left text-lg" aria-hidden="true"></i>
+        </button>
+        <h2 className="text-sm font-black uppercase tracking-tight text-slate-800 dark:text-slate-100 md:text-base">Finalized reports</h2>
+      </div>
+
       {/* Search Interaction Layer */}
-      <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 shrink-0 z-10">
+      <div className="z-10 shrink-0 border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80 md:px-6">
         <div className="relative">
           <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
           <input type="text"  className="w-full pl-10 pr-12 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003399] transition shadow-inner" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
@@ -299,7 +359,7 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-50/30 dark:bg-slate-950 [grid-auto-rows:minmax(140px,1fr)]">
+      <div className="grid flex-1 grid-cols-1 gap-6 overflow-y-auto bg-slate-50/30 p-4 [grid-auto-rows:minmax(140px,1fr)] dark:bg-slate-950 md:grid-cols-2 md:p-8 lg:grid-cols-3">
         {filteredProjects.length === 0 ? (
           <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-300 space-y-4 pt-10">
             <i className="fas fa-search text-5xl opacity-20"></i>
@@ -367,7 +427,8 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
           })
         )}
       </div>
-    </div>
+      </div>
+    </PortalLayout>
   );
 };
 

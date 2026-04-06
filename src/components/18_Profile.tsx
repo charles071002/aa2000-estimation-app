@@ -1,8 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { User } from '../types';
+import PortalLayout, { PortalNavKey } from './19_PortalLayout';
+import { loadNotificationPrefs, persistNotificationPrefs, type NotificationPrefs } from '../utils/notificationPrefs';
+import { NOTIFICATIONS_UPDATED_EVENT } from '../utils/inAppNotifications';
+
+export type { NotificationPrefs };
 
 const THEME_KEY = 'aa2000_theme';
-const NOTIFICATION_PREFS_KEY = 'aa2000_notification_prefs';
+const COMPACT_MODE_KEY = 'aa2000_compact_mode';
 const TWO_FACTOR_KEY = 'aa2000_two_factor_enabled';
 const LOGIN_ACTIVITY_KEY = 'aa2000_login_activity_v1';
 const SESSIONS_KEY = 'aa2000_sessions_v1';
@@ -30,8 +35,12 @@ interface Props {
   userRole: 'TECHNICIAN' | 'ADMIN' | null;
   theme: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
+  compactMode: boolean;
+  onCompactModeChange: (compact: boolean) => void;
   onUserUpdate: (u: User) => void;
-  onBack: () => void;
+  onPortalNavigate: (key: PortalNavKey) => void;
+  onOpenProfile: () => void;
+  onLogout: () => void;
 }
 
 const emailValid = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -41,25 +50,6 @@ const phoneValid = (v: string) => {
   const d = phoneDigits(v);
   return d.length >= 10 && d.length <= 15;
 };
-
-function loadNotificationPrefs(): { email: boolean; approval: boolean; security: boolean } {
-  try {
-    const raw = localStorage.getItem(NOTIFICATION_PREFS_KEY);
-    if (!raw) return { email: true, approval: true, security: true };
-    const p = JSON.parse(raw);
-    return {
-      email: p.email !== false,
-      approval: p.approval !== false,
-      security: p.security !== false,
-    };
-  } catch {
-    return { email: true, approval: true, security: true };
-  }
-}
-
-function persistNotificationPrefs(p: { email: boolean; approval: boolean; security: boolean }) {
-  localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(p));
-}
 
 function loadTwoFactor(): boolean {
   try {
@@ -208,7 +198,19 @@ const btnSecondary =
 /**
  * Profile & settings: appearance, personal info, security, notifications.
  */
-const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUserUpdate, onBack }) => {
+function formatSessionStatus(lastActiveIso: string): string {
+  try {
+    const t = new Date(lastActiveIso).getTime();
+    const diff = Date.now() - t;
+    if (diff < 120000) return 'Unknown · Just now';
+    if (diff < 3600000) return `Unknown · ${Math.floor(diff / 60000)}m ago`;
+    return `Unknown · ${new Date(lastActiveIso).toLocaleString()}`;
+  } catch {
+    return 'Unknown · Just now';
+  }
+}
+
+const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, compactMode, onCompactModeChange, onUserUpdate, onPortalNavigate, onOpenProfile, onLogout }) => {
   const [fullName, setFullName] = useState(user.fullName);
   const [email, setEmail] = useState(user.email);
   const [phone, setPhone] = useState(user.phone ?? '');
@@ -246,10 +248,15 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
     onThemeChange(mode);
   }, [onThemeChange]);
 
-  const handleNotifToggle = (key: 'email' | 'approval' | 'security', value: boolean) => {
+  const handleNotifToggle = (key: keyof NotificationPrefs, value: boolean) => {
     const next = { ...notif, [key]: value };
     setNotif(next);
     persistNotificationPrefs(next);
+    try {
+      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_UPDATED_EVENT));
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleTwoFactor = (on: boolean) => {
@@ -409,31 +416,24 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
   );
 
   return (
-    <div
-      className={`flex min-h-full flex-col ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}
-      role="region"
-      aria-label="Account profile and settings"
+    <PortalLayout
+      user={user}
+      userRole={userRole}
+      theme={theme}
+      onThemeChange={onThemeChange}
+      compactMode={compactMode}
+      onCompactModeChange={onCompactModeChange}
+      onNavigate={onPortalNavigate}
+      onOpenProfile={onOpenProfile}
+      onLogout={onLogout}
+      headerTitle="Profile & settings"
     >
-      <header className="flex shrink-0 items-center justify-between border-b border-slate-800 bg-[#0c1a3a] px-4 py-3 shadow-md md:px-8">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="touch-target flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition hover:bg-white/15 active:scale-95"
-            aria-label="Back"
-          >
-            <i className="fas fa-arrow-left" aria-hidden="true"></i>
-          </button>
-          <div>
-            <h1 className="text-sm font-black uppercase tracking-widest text-white md:text-base">Profile &amp; settings</h1>
-            <p className="truncate text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
-              {userRole === 'ADMIN' ? 'Sales & Admin' : 'Technician'}
-            </p>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-10">
+      <div
+        className={`mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:px-8 md:py-10 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}
+        role="region"
+        aria-label="Account profile and settings"
+      >
+      <main className="w-full">
         <div className="space-y-6">
           {/* Appearance */}
           <section className={sectionCard} aria-labelledby="appearance-heading">
@@ -495,6 +495,7 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
                   className={inputClass}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Your full name"
                   autoComplete="name"
                 />
               </div>
@@ -511,6 +512,7 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
                     setEmail(e.target.value);
                     setFieldErrors((f) => ({ ...f, email: undefined }));
                   }}
+                  placeholder="you@example.com"
                   autoComplete="email"
                 />
                 {fieldErrors.email && <p className="mt-1 text-xs font-bold text-red-400">{fieldErrors.email}</p>}
@@ -528,7 +530,7 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
                     setPhone(e.target.value);
                     setFieldErrors((f) => ({ ...f, phone: undefined }));
                   }}
-                  placeholder="+63 9xx xxx xxxx"
+                  placeholder="+63 9XX XXX XXXX"
                   autoComplete="tel"
                 />
                 {fieldErrors.phone && <p className="mt-1 text-xs font-bold text-red-400">{fieldErrors.phone}</p>}
@@ -663,7 +665,7 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
                           <p className={`text-xs ${mutedText}`}>{s.browser}</p>
                         </div>
                         <p className={`text-[10px] font-mono ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                          Last active {new Date(s.lastActive).toLocaleString()}
+                          {formatSessionStatus(s.lastActive)}
                         </p>
                       </li>
                     );
@@ -679,38 +681,69 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
               <h2 id="notif-heading" className={`text-xs font-black uppercase tracking-[0.2em] ${subheading}`}>
                 Notification preferences
               </h2>
+              <p className={`mt-1 text-xs font-medium ${mutedText}`}>Choose which notifications you receive.</p>
               <p className={`mt-1 text-xs ${mutedText}`}>
                 Toggles save immediately. Defaults are on for all channels.
-                <span
-                  className={`ml-1 inline ${isDark ? 'text-slate-500' : 'text-slate-400'}`}
-                  title="Download finalized project report and other alerts use your email preferences when enabled."
-                >
-                  <i className="fas fa-circle-info"></i>
-                </span>
               </p>
             </div>
             <div className="px-5 py-2">
               <ToggleRow
                 id="notif-email"
                 title="Email notifications"
-                description="Updates and general alerts sent to your work email."
+                description="Receive updates and alerts via email."
                 checked={notif.email}
                 onChange={(v) => handleNotifToggle('email', v)}
                 tooltip="Includes project updates and operational alerts."
                 isDark={isDark}
               />
-              <ToggleRow
-                id="notif-approval"
-                title="Approval requests"
-                description="New sign-up or access requests awaiting your action."
-                checked={notif.approval}
-                onChange={(v) => handleNotifToggle('approval', v)}
-                isDark={isDark}
-              />
+              {userRole === 'TECHNICIAN' && (
+                <>
+                  <ToggleRow
+                    id="notif-new-projects"
+                    title="New Projects"
+                    description="Get notified when new projects are assigned to you."
+                    checked={notif.newProjects}
+                    onChange={(v) => handleNotifToggle('newProjects', v)}
+                    tooltip="Assignment alerts for projects you are added to."
+                    isDark={isDark}
+                  />
+                  <ToggleRow
+                    id="notif-finalization-updates"
+                    title="Finalization Updates"
+                    description="Get notified when Sales or Admin approves or rejects your submitted project."
+                    checked={notif.finalizationUpdates}
+                    onChange={(v) => handleNotifToggle('finalizationUpdates', v)}
+                    tooltip="Final outcome alerts for projects you work on."
+                    isDark={isDark}
+                  />
+                </>
+              )}
+              {userRole === 'ADMIN' && (
+                <>
+                  <ToggleRow
+                    id="notif-finalization-requests"
+                    title="Finalization Requests"
+                    description="Receive alerts when a project is ready for finalizing."
+                    checked={notif.approvalRequests}
+                    onChange={(v) => handleNotifToggle('approvalRequests', v)}
+                    tooltip="When technicians submit work for review (Pending Review)."
+                    isDark={isDark}
+                  />
+                  <ToggleRow
+                    id="notif-technician-responses"
+                    title="Technician Responses"
+                    description="Receive alerts when a technician accepts or rejects an assigned project."
+                    checked={notif.technicianResponses}
+                    onChange={(v) => handleNotifToggle('technicianResponses', v)}
+                    tooltip="Accept/decline activity on project assignments."
+                    isDark={isDark}
+                  />
+                </>
+              )}
               <ToggleRow
                 id="notif-security"
                 title="Security alerts"
-                description="Important login and security events for your account."
+                description="Important security and login notifications."
                 checked={notif.security}
                 onChange={(v) => handleNotifToggle('security', v)}
                 isDark={isDark}
@@ -725,7 +758,7 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
       </main>
 
       {showPasswordModal && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[960] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm animate-fade-in">
           <div
             className="my-auto w-full max-w-sm rounded-2xl border border-slate-600 bg-slate-900 shadow-2xl animate-fade-in"
             role="dialog"
@@ -799,9 +832,10 @@ const Profile: React.FC<Props> = ({ user, userRole, theme, onThemeChange, onUser
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </PortalLayout>
   );
 };
 
 export default Profile;
-export { THEME_KEY };
+export { THEME_KEY, COMPACT_MODE_KEY };

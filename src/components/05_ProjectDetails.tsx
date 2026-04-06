@@ -455,7 +455,7 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
   };
 
   return (
-    <div className="p-6 h-screen overflow-y-auto bg-white flex flex-col relative">
+    <div className="relative flex h-full min-h-0 flex-col overflow-y-auto bg-white p-6 dark:bg-slate-950">
       {/* Pin project location pop-up modal */}
       {showLocationScreen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 animate-fade-in" aria-modal="true" role="dialog" aria-labelledby="pin-location-title" onClick={() => setShowLocationScreen(false)}>
@@ -596,11 +596,15 @@ const ProjectDetails: React.FC<Props> = ({ user, onBack, onStart, onSelectSurvey
           FORM HEADER
           Purpose: Logical title and exit action for the technician.
       */}
-      <div className="flex items-center mb-6 gap-4 shrink-0">
-        <button onClick={onBack} className="text-blue-900 touch-target" aria-label="Go back to Dashboard">
+      <div className="mb-6 flex shrink-0 items-center gap-4">
+        <button
+          onClick={onBack}
+          className="touch-target text-blue-900 dark:text-blue-400"
+          aria-label="Go back to Dashboard"
+        >
           <i className="fas fa-chevron-left text-xl"></i>
         </button>
-        <h2 className="text-2xl font-black text-blue-900">Project Details</h2>
+        <h2 className="text-2xl font-black text-blue-900 dark:text-blue-400">Project Details</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 mb-5 shrink-0">

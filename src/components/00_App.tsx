@@ -15,8 +15,14 @@ import OtherSurvey from './11_OtherSurvey';
 import AIClarification from './13_AIClarification';
 import EstimationScreen from './14_EstimationScreen';
 import SurveySummary from './15_SurveySummary';
-import Profile, { THEME_KEY, ThemeMode } from './18_Profile';
+import Profile, { THEME_KEY, ThemeMode, COMPACT_MODE_KEY } from './18_Profile';
+import PortalLayout, { type PortalNavKey } from './19_PortalLayout';
 import { AA2000_LOGO } from '../constants';
+import {
+  notifyAdminsProjectReadyForFinalization,
+  notifyTechniciansAssigned,
+  notifyTechniciansProjectFinalized,
+} from '../utils/inAppNotifications';
 
 /**
  * APPLICATION WORKFLOW SCREENS
@@ -96,13 +102,26 @@ const App: React.FC = () => {
   const [userRole, setUserRole] = useState<'TECHNICIAN' | 'ADMIN' | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'light';
+    if (typeof window === 'undefined') return 'dark';
     try {
-      return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
+      const t = localStorage.getItem(THEME_KEY);
+      if (t === 'light' || t === 'dark') return t;
+      return 'dark';
     } catch {
-      return 'light';
+      return 'dark';
     }
   });
+
+  const [compactMode, setCompactMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem(COMPACT_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const [workspaceSection, setWorkspaceSection] = useState<'ONGOING' | 'UPCOMING' | 'HISTORY'>('ONGOING');
   
   // --- PROJECT BUFFERS ---
   // These states act as temporary containers for a survey currently "in-flight".
@@ -274,6 +293,15 @@ const App: React.FC = () => {
     window.scrollTo(0, 0);
   }, [screen]);
 
+  /** Sales/Admin only: finalized reports route. */
+  useEffect(() => {
+    if (screen !== 'CURRENT_PROJECTS' || !user) return;
+    if (userRole === 'TECHNICIAN') {
+      replaceStateRef.current = true;
+      setScreen('DASHBOARD');
+    }
+  }, [screen, user, userRole]);
+
   useEffect(() => {
     try {
       localStorage.setItem(THEME_KEY, theme);
@@ -284,6 +312,15 @@ const App: React.FC = () => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', theme === 'dark' ? '#020617' : '#2563eb');
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COMPACT_MODE_KEY, compactMode ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    document.documentElement.classList.toggle('compact-ui', compactMode);
+  }, [compactMode]);
 
   /**
    * AUTHENTICATION HANDLERS
@@ -313,6 +350,32 @@ const App: React.FC = () => {
     localStorage.removeItem('aa2000_user');
     localStorage.removeItem('aa2000_userRole');
     setScreen('ROLE_SELECTION');
+  };
+
+  const handlePortalNavigate = (key: PortalNavKey) => {
+    switch (key) {
+      case 'ongoing':
+        setWorkspaceSection('ONGOING');
+        setScreen('DASHBOARD');
+        break;
+      case 'upcoming':
+        setWorkspaceSection('UPCOMING');
+        setScreen('DASHBOARD');
+        break;
+      case 'history':
+        setWorkspaceSection('HISTORY');
+        setScreen('DASHBOARD');
+        break;
+      case 'create':
+        resetSurveyBuffers();
+        setScreen('PROJECT_DETAILS');
+        break;
+      case 'finalized':
+        setScreen('CURRENT_PROJECTS');
+        break;
+      default:
+        break;
+    }
   };
 
   /**
@@ -355,6 +418,7 @@ const App: React.FC = () => {
     };
     saved.push(newRecord);
     localStorage.setItem('aa2000_saved_projects', JSON.stringify(saved));
+    notifyTechniciansAssigned(p);
     resetSurveyBuffers();
     setScreen('DASHBOARD');
   };
@@ -633,17 +697,18 @@ const App: React.FC = () => {
           <Dashboard 
             user={user!}
             userRole={userRole}
-            onCreateProject={() => {
-              resetSurveyBuffers();
-              setScreen('PROJECT_DETAILS');
-            }}
+            theme={theme}
+            onThemeChange={setTheme}
+            compactMode={compactMode}
+            onCompactModeChange={setCompactMode}
+            workspaceSection={workspaceSection}
+            onPortalNavigate={handlePortalNavigate}
             onEditAuditFromList={handleEditAuditFromList}
             onOpenSummaryFromList={(projectRecord, index) => {
               setSelectedHistoricalProject(projectRecord);
               setEditingIndex(index);
               setScreen('SUMMARY');
             }}
-            onOpenFinalizedReports={() => setScreen('CURRENT_PROJECTS')}
             onOpenProfile={() => setScreen('PROFILE')}
             onLogout={handleLogout}
           />
@@ -656,8 +721,12 @@ const App: React.FC = () => {
             userRole={userRole}
             theme={theme}
             onThemeChange={setTheme}
+            compactMode={compactMode}
+            onCompactModeChange={setCompactMode}
             onUserUpdate={setUser}
-            onBack={() => setScreen('DASHBOARD')}
+            onPortalNavigate={handlePortalNavigate}
+            onOpenProfile={() => setScreen('PROFILE')}
+            onLogout={handleLogout}
           />
         );
 
@@ -666,10 +735,17 @@ const App: React.FC = () => {
           <CurrentProjects 
             user={user}
             userRole={userRole}
+            theme={theme}
+            onThemeChange={setTheme}
+            compactMode={compactMode}
+            onCompactModeChange={setCompactMode}
+            onPortalNavigate={handlePortalNavigate}
+            onOpenProfile={() => setScreen('PROFILE')}
+            onLogout={handleLogout}
             onGoToDashboardSection={
               userRole === 'ADMIN'
                 ? (section) => {
-                    sessionStorage.setItem('aa2000_dashboard_section', section);
+                    setWorkspaceSection(section);
                     setScreen('DASHBOARD');
                   }
                 : undefined
@@ -692,18 +768,46 @@ const App: React.FC = () => {
           />
         );
 
-      case 'PROJECT_DETAILS':
+      case 'PROJECT_DETAILS': {
+        const projectDetailsActiveNav: PortalNavKey =
+          userRole === 'ADMIN'
+            ? editingIndex !== null
+              ? 'finalized'
+              : 'create'
+            : workspaceSection === 'ONGOING'
+              ? 'ongoing'
+              : workspaceSection === 'UPCOMING'
+                ? 'upcoming'
+                : 'history';
+        const projectDetailsHeader =
+          userRole === 'ADMIN' && editingIndex === null ? 'Create project' : 'Project details';
+
         return (
-          <ProjectDetails 
+          <PortalLayout
             user={user!}
-            onBack={() => setScreen(editingIndex !== null ? 'CURRENT_PROJECTS' : 'DASHBOARD')}
-            onStart={startProject}
-            onSelectSurvey={handleSurveySelection}
-            creationOnly={userRole === 'ADMIN'}
-            onCreateProject={userRole === 'ADMIN' ? handleCreateProjectSetup : undefined}
-            initialData={activeProject || undefined}
-          />
+            userRole={userRole}
+            theme={theme}
+            onThemeChange={setTheme}
+            compactMode={compactMode}
+            onCompactModeChange={setCompactMode}
+            activeNav={projectDetailsActiveNav}
+            onNavigate={handlePortalNavigate}
+            onOpenProfile={() => setScreen('PROFILE')}
+            onLogout={handleLogout}
+            headerTitle={projectDetailsHeader}
+          >
+            <ProjectDetails
+              user={user!}
+              onBack={() => setScreen(editingIndex !== null ? 'CURRENT_PROJECTS' : 'DASHBOARD')}
+              onStart={startProject}
+              onSelectSurvey={handleSurveySelection}
+              creationOnly={userRole === 'ADMIN'}
+              onCreateProject={userRole === 'ADMIN' ? handleCreateProjectSetup : undefined}
+              initialData={activeProject || undefined}
+            />
+          </PortalLayout>
         );
+      }
 
       case 'CCTV_SURVEY':
         return (
@@ -947,13 +1051,17 @@ if (!dP) {
                       if (found >= 0) idx = found;
                     }
                     if (idx !== null && idx >= 0 && parsed[idx]?.project) {
+                      const nextProject = { ...parsed[idx].project, status };
                       parsed[idx] = {
                         ...parsed[idx],
-                        project: { ...parsed[idx].project, status },
+                        project: nextProject,
                       };
                       localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
                       setSelectedHistoricalProject(parsed[idx]);
                       if (editingIndex === null) setEditingIndex(idx);
+                      if (status === 'Finalized' || status === 'Rejected') {
+                        notifyTechniciansProjectFinalized(nextProject, status);
+                      }
                     }
                   }
                 : undefined
@@ -963,11 +1071,13 @@ if (!dP) {
                 const raw = localStorage.getItem('aa2000_saved_projects');
                 const parsed = raw ? JSON.parse(raw) : [];
                 if (parsed[editingIndex]?.project) {
+                  const nextProject = { ...parsed[editingIndex].project, status: 'Pending Review' as const };
                   parsed[editingIndex] = {
                     ...parsed[editingIndex],
-                    project: { ...parsed[editingIndex].project, status: 'Pending Review' },
+                    project: nextProject,
                   };
                   localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+                  notifyAdminsProjectReadyForFinalization(nextProject);
                 }
               }
               setScreen(userRole === 'ADMIN' ? 'CURRENT_PROJECTS' : 'DASHBOARD');
