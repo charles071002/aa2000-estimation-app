@@ -130,7 +130,7 @@ const CurrentProjects: React.FC<Props> = ({
    */
   const handleDownloadPDF = async () => {
     if (!selectedProject || sending) return;
-    if (selectedProject.project?.status !== 'Finalized') return;
+    if (selectedProject.project?.status !== 'Finalized - Approved' && selectedProject.project?.status !== 'Finalized') return;
     setSending(true);
 
     try {
@@ -218,9 +218,12 @@ const CurrentProjects: React.FC<Props> = ({
   };
 
   /**
-   * filteredProjects: Only finalized reports (status === 'Finalized'), then search.
+   * filteredProjects: Only finalized reports (approved/rejected), then search.
    */
-  const filteredProjects = projects.filter((item) => item.project?.status === 'Finalized').filter((item) => {
+  const filteredProjects = projects.filter((item) => {
+    const status = item.project?.status;
+    return status === 'Finalized' || status === 'Finalized - Approved' || status === 'Finalized - Rejected';
+  }).filter((item) => {
     const query = searchQuery.toLowerCase();
     const p = item.project;
     const types = [item.cctvData?'cctv':'', item.faData?'fire':'', item.fpData?'fire protection':'', item.acData?'access':'', item.baData?'burglar':'', item.otherData?'other':''].join(' ');
@@ -233,7 +236,7 @@ const CurrentProjects: React.FC<Props> = ({
     const isOwner = userRole === 'TECHNICIAN' && user?.fullName === selectedProject.project.technicianName;
     // Sales/Admin should not be able to delete final reports from the list view.
     const canDelete = isOwner;
-    const isFinalized = selectedProject.project?.status === 'Finalized';
+    const isFinalizedApproved = selectedProject.project?.status === 'Finalized - Approved' || selectedProject.project?.status === 'Finalized';
     return (
       <div className="flex flex-col h-full bg-white dark:bg-slate-950 animate-fade-in overflow-hidden">
         <header className="relative z-30 flex shrink-0 items-start justify-between gap-3 border-b border-slate-800 bg-[#0a1628] p-4 text-white shadow-lg">
@@ -259,7 +262,7 @@ const CurrentProjects: React.FC<Props> = ({
                 <i className="fas fa-trash mr-1" aria-hidden="true"></i> Delete
               </button>
             )}
-            {isFinalized && userRole === 'ADMIN' && (
+            {isFinalizedApproved && userRole === 'ADMIN' && (
               <button
                 type="button"
                 title="Download finalized project report (PDF)."

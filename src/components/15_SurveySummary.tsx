@@ -18,6 +18,7 @@ interface Remark {
 }
 
 interface Props {
+  user?: any;
   userRole: 'TECHNICIAN' | 'ADMIN' | null;
   project: Project;
   cctvData: CCTVSurveyData | null;
@@ -30,6 +31,11 @@ interface Props {
   estimationData?: { days: number; techs: number } | null; // Support legacy single object
   onDone: () => void;
   hideDoneButton?: boolean;
+  onAdminSetReportStatus?: (payload: {
+    status: Extract<Project['status'], 'Finalized - Approved' | 'Finalized - Rejected'>;
+    reason?: string;
+    actedByRole: 'Admin' | 'Sales';
+  }) => void;
   onDeleteSurvey?: (surveyType: SurveyType) => void;
   /** When provided, shows Edit Audit button in detail modal; called with survey type to open that survey for editing. */
   onEditAudit?: (surveyType: SurveyType) => void;
@@ -86,6 +92,13 @@ const PRICES = {
 
 const formatCurrency = (val: number) =>
   new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(val);
+
+type ProjectRoleSummary = {
+  role: string;
+  count: number;
+  hours: number;
+  manDays: number;
+};
 
 function getSystemEstimate(
   surveyType: string,
@@ -146,10 +159,14 @@ function getSystemEstimate(
   return { equipment, cables, labor, consumables, additional, subtotal, total };
 }
 
-const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, fpData, acData, baData, otherData, estimations, estimationData, onDone, hideDoneButton = false, onDeleteSurvey, onEditAudit }) => {
+const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, fpData, acData, baData, otherData, estimations, estimationData, onDone, hideDoneButton = false, onAdminSetReportStatus, onDeleteSurvey, onEditAudit }) => {
   const canViewSensitive = userRole === 'ADMIN';
   const isTechnician = userRole === 'TECHNICIAN';
-  const isTechnicianFinalizedLock = isTechnician && project.status === 'Finalized';
+  const isFinalizedStatus =
+    project.status === 'Finalized' ||
+    project.status === 'Finalized - Approved' ||
+    project.status === 'Finalized - Rejected';
+  const isTechnicianFinalizedLock = isTechnician && isFinalizedStatus;
   const canModifyAudit = !isTechnicianFinalizedLock;
   const [currentRemark, setCurrentRemark] = useState('');
   const [sender, setSender] = useState<'Sales' | 'Admin' | 'Technician'>(userRole === 'ADMIN' ? 'Sales' : 'Technician');
@@ -160,6 +177,8 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
   const [activeDetail, setActiveDetail] = useState<{ type: string; data: any } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showManpowerModal, setShowManpowerModal] = useState(false);
+  const [finalizationActor, setFinalizationActor] = useState<'Admin' | 'Sales'>('Sales');
+  const [rejectionReason, setRejectionReason] = useState('');
 
   const closeDetail = () => {
     setActiveDetail(null);
@@ -183,25 +202,62 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
     }
   }, [project.id]);
 
-  // Aggregate estimations: total manpower (sum of all technicians) and total man-days (sum of techs × days per audit).
+  // Aggregate estimations: total manpower and total man-days for this project.
   const getAggregates = () => {
     let totalManpower = 0;
     let totalManDays = 0;
+    const roleMap = new Map<string, { count: number; hours: number }>();
+    let hasExplicitRoleBreakdown = false;
 
     if (estimations && Object.keys(estimations).length > 0) {
       Object.values(estimations).forEach((est: any) => {
-        totalManpower += est.techs ?? 0;
-        totalManDays += (est.days ?? 0) * (est.techs ?? 0);
+        const techs = Number(est?.techs) || 0;
+        const days = Number(est?.days) || 0;
+        totalManpower += techs;
+        totalManDays += days * techs;
+        const breakdown = Array.isArray(est?.manpowerBreakdown) ? est.manpowerBreakdown : [];
+        if (breakdown.length > 0) {
+          hasExplicitRoleBreakdown = true;
+          breakdown.forEach((m: any) => {
+            const role = String(m?.role || '').trim();
+            if (!role) return;
+            const prev = roleMap.get(role) || { count: 0, hours: 0 };
+            roleMap.set(role, {
+              count: Math.max(prev.count, Number(m?.count) || 0),
+              hours: prev.hours + (Number(m?.hours) || 0),
+            });
+          });
+        }
       });
     } else if (estimationData) {
       totalManpower = estimationData.techs ?? 0;
       totalManDays = (estimationData.days ?? 0) * (estimationData.techs ?? 0);
     }
 
-    return { totalManpower, totalManDays };
+    let byRole: ProjectRoleSummary[] = [];
+    if (hasExplicitRoleBreakdown) {
+      byRole = Array.from(roleMap.entries())
+        .map(([role, v]) => ({
+          role,
+          count: v.count,
+          hours: v.hours,
+          manDays: Number((v.hours / 8).toFixed(2)),
+        }))
+        .sort((a, b) => b.hours - a.hours);
+    } else if (totalManpower > 0 || totalManDays > 0) {
+      const totalHours = totalManDays * 8;
+      byRole = [
+        { role: 'Lead Technician', count: Math.min(1, totalManpower), hours: totalManDays > 0 ? totalManDays * 8 / Math.max(1, totalManpower) : 0, manDays: 0 },
+        { role: 'General Helper', count: Math.max(0, totalManpower - 1), hours: Math.max(0, totalHours - (totalManDays > 0 ? totalManDays * 8 / Math.max(1, totalManpower) : 0)), manDays: 0 },
+      ]
+        .filter((r) => r.count > 0 || r.hours > 0)
+        .map((r) => ({ ...r, manDays: Number((r.hours / 8).toFixed(2)) }));
+    }
+
+    return { totalManpower, totalManDays, byRole };
   };
 
-  const { totalManpower, totalManDays } = getAggregates();
+  const { totalManpower, totalManDays, byRole } = getAggregates();
 
   const updateLocalStorage = (field: 'techNotes' | 'remarks', value: any) => {
     const savedProjects = localStorage.getItem('aa2000_saved_projects');
@@ -622,7 +678,8 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
                  <div className="p-4 bg-slate-900 rounded-2xl text-white text-[11px] leading-relaxed shadow-lg">
                     "{data.serviceDetails}"
                  </div>
-                 <div className="grid grid-cols-2 gap-4 pt-2">
+                {canViewSensitive && (
+                  <div className="grid grid-cols-2 gap-4 pt-2">
                     <div className="bg-slate-50 p-3 rounded-xl">
                       <p className="text-[10px] font-black text-slate-400 uppercase">Estimated Cost</p>
                       <p className="text-xs font-black text-blue-900">₱{data.estimatedCost?.toLocaleString() || '0'}</p>
@@ -631,7 +688,8 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
                       <p className="text-[10px] font-black text-slate-400 uppercase">Cable Cost</p>
                       <p className="text-xs font-black text-blue-900">₱{data.cablesCost?.toLocaleString() || '0'}</p>
                     </div>
-                 </div>
+                  </div>
+                )}
               </section>
             )}
             
@@ -752,7 +810,7 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
             })()}
 
             {/* Additional Fees */}
-            {(() => {
+            {canViewSensitive && (() => {
               const typeToKey: Record<string, string> = { 'CCTV': SurveyType.CCTV, 'Fire Alarm': SurveyType.FIRE_ALARM, 'Access Control': SurveyType.ACCESS_CONTROL, 'Burglar Alarm': SurveyType.BURGLAR_ALARM, 'Fire Protection': SurveyType.FIRE_PROTECTION, 'Other': SurveyType.OTHER };
               const est = estimations?.[typeToKey[type]] as EstimationDetail | undefined;
               const fees = est?.additionalFees;
@@ -980,8 +1038,44 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
             </div>
             <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
               <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Status</span>
-              <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.status || 'In Progress'}</span>
+              <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">
+                {project.status === 'Completed' ? 'Completed by Technician' : (project.status || 'In Progress')}
+              </span>
             </div>
+            {project.finalization?.outcome && (
+              <>
+                <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+                  <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Finalization</span>
+                  <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">
+                    {project.finalization.outcome === 'APPROVED' ? 'Approved' : 'Rejected'}
+                  </span>
+                </div>
+                <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+                  <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Finalized At</span>
+                  <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">
+                    {new Date(project.finalization.actedAt).toLocaleString()}
+                  </span>
+                </div>
+                {project.finalization.reason && (
+                  <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+                    <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Reason</span>
+                    <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.finalization.reason}</span>
+                  </div>
+                )}
+              </>
+            )}
+            {project.completedAt && (
+              <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+                <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Completed At</span>
+                <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{new Date(project.completedAt).toLocaleString()}</span>
+              </div>
+            )}
+            {project.completedBy && (
+              <div className={`flex justify-between items-center ${canViewSensitive ? 'border-b border-slate-200 pb-1' : ''}`}>
+                <span className="text-slate-400 text-xs font-black uppercase tracking-widest">Completed By</span>
+                <span className="font-normal text-slate-900 text-sm ml-2 text-right truncate">{project.completedBy}</span>
+              </div>
+            )}
             {canViewSensitive && (
               <>
                 <div className="flex justify-between items-center border-b border-slate-200 pb-1">
@@ -1163,15 +1257,28 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
           </div>
 
           <div className="flex items-center justify-center py-2">
-            <button
-              type="button"
-              onClick={() => setShowManpowerModal(true)}
-              className="w-full flex items-center justify-center p-3 bg-white border-[3px] border-slate-200 rounded-[1.5rem] shadow-md animate-fade-in hover:border-slate-300 hover:bg-slate-50 transition active:scale-[0.99] text-left"
-            >
-              <span className="font-normal text-sm uppercase tracking-tight text-slate-900">
-                {totalManpower} TECHNICIAN{totalManpower !== 1 ? 'S' : ''} – {totalManDays} MAN-DAY{totalManDays !== 1 ? 'S' : ''}
-              </span>
-            </button>
+            <div className="w-full space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowManpowerModal(true)}
+                className="w-full flex items-center justify-center p-3 bg-white border-[3px] border-slate-200 rounded-[1.5rem] shadow-md animate-fade-in hover:border-slate-300 hover:bg-slate-50 transition active:scale-[0.99] text-left"
+              >
+                <span className="font-normal text-sm uppercase tracking-tight text-slate-900">
+                  {totalManpower} TECHNICIAN{totalManpower !== 1 ? 'S' : ''} NEEDED – {totalManDays} MAN-DAY{totalManDays !== 1 ? 'S' : ''} NEEDED
+                </span>
+              </button>
+              {byRole.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-left space-y-1.5">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Technician Breakdown</p>
+                  {byRole.map((r) => (
+                    <div key={r.role} className="flex justify-between items-center text-xs font-bold text-slate-700">
+                      <span>{r.role} x {r.count}</span>
+                      <span className="text-blue-900">{r.manDays} man-days</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {showManpowerModal && (
@@ -1192,17 +1299,20 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
                           <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Type</th>
                           <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Technicians</th>
                           <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Days</th>
+                          <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Man-days</th>
                           <th className="pb-2 font-bold uppercase tracking-widest text-[10px]">Working hours</th>
                         </tr>
                       </thead>
                       <tbody>
                         {estimations && Object.entries(estimations).map(([typeKey, est]: [string, any]) => {
                           const hrs = (est.days ?? 0) * (est.techs ?? 0) * 8;
+                          const manDays = (est.days ?? 0) * (est.techs ?? 0);
                           return (
                             <tr key={typeKey} className="border-b border-slate-100">
                               <td className="py-2 pr-2 font-medium text-slate-900">{typeKey}</td>
                               <td className="py-2 pr-2 text-slate-700">{est.techs ?? 0}</td>
                               <td className="py-2 pr-2 text-slate-700">{est.days ?? 0}</td>
+                              <td className="py-2 pr-2 text-slate-700">{manDays}</td>
                               <td className="py-2 text-slate-700">{hrs} hrs</td>
                             </tr>
                           );
@@ -1212,6 +1322,7 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
                             <td className="py-2 pr-2 font-medium text-slate-900">Project</td>
                             <td className="py-2 pr-2 text-slate-700">{estimationData.techs ?? 0}</td>
                             <td className="py-2 pr-2 text-slate-700">{estimationData.days ?? 0}</td>
+                            <td className="py-2 pr-2 text-slate-700">{(estimationData.days ?? 0) * (estimationData.techs ?? 0)}</td>
                             <td className="py-2 text-slate-700">{(estimationData.days ?? 0) * (estimationData.techs ?? 0) * 8} hrs</td>
                           </tr>
                         )}
@@ -1221,42 +1332,30 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
 
                   <div>
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">By role</h4>
-                    {(() => {
-                      const entries = estimations && Object.keys(estimations).length > 0
-                        ? Object.entries(estimations)
-                        : estimationData ? [['Project', estimationData]] : [];
-                      const numPhases = entries.length;
-                      const leadTechHours = entries.reduce((sum, [, est]: [string, any]) => sum + ((est.days ?? 0) * 8), 0);
-                      const totalHours = totalManDays * 8;
-                      const leadTechCount = Math.min(numPhases, totalManpower);
-                      const generalHelperCount = Math.max(0, totalManpower - numPhases);
-                      const generalHelperHours = Math.max(0, totalHours - leadTechHours);
-                      const roleRows: { role: string; count: number; hours: number }[] = [];
-                      if (leadTechCount > 0) roleRows.push({ role: 'Lead Technician', count: leadTechCount, hours: leadTechHours });
-                      if (generalHelperCount > 0) roleRows.push({ role: 'General Helper', count: generalHelperCount, hours: generalHelperHours });
-                      if (roleRows.length === 0) return <p className="text-sm text-slate-500">No role breakdown for this project.</p>;
-                      return (
-                        <table className="w-full text-left text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-500">
-                              <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Role</th>
-                              <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Count</th>
-                              <th className="pb-2 font-bold uppercase tracking-widest text-[10px]">Working hours</th>
+                    {byRole.length === 0 ? (
+                      <p className="text-sm text-slate-500">No role breakdown for this project.</p>
+                    ) : (
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-slate-500">
+                            <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Role</th>
+                            <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Count</th>
+                            <th className="pb-2 pr-2 font-bold uppercase tracking-widest text-[10px]">Man-days</th>
+                            <th className="pb-2 font-bold uppercase tracking-widest text-[10px]">Working hours</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {byRole.map(({ role, count, hours, manDays }) => (
+                            <tr key={role} className="border-b border-slate-100">
+                              <td className="py-2 pr-2 font-medium text-slate-900">{role}</td>
+                              <td className="py-2 pr-2 text-slate-700">{count}</td>
+                              <td className="py-2 pr-2 text-slate-700">{manDays}</td>
+                              <td className="py-2 text-slate-700">{hours} hrs</td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {roleRows.map(({ role, count, hours }) => (
-                              <tr key={role} className="border-b border-slate-100">
-                                <td className="py-2 pr-2 font-medium text-slate-900">{role}</td>
-                                <td className="py-2 pr-2 text-slate-700">{count}</td>
-                                <td className="py-2 text-slate-700">{hours} hrs</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      );
-                    })()}
-                    <p className="text-[10px] text-slate-500 mt-2">Lead: 1 per audit phase. Helpers: remaining technicians.</p>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
 
                   <div className="pt-3 border-t border-slate-200 flex justify-between text-sm font-semibold text-slate-800">
@@ -1333,6 +1432,57 @@ const SurveySummary: React.FC<Props> = ({ userRole, project, cctvData, faData, f
           </div>
           {/* Removed italic font style */}
           <p className="text-xs text-slate-300 font-bold pt-1 pb-2 uppercase tracking-tight">Sync complete. Secure report generated for {project.technicianName}.</p>
+          {canViewSensitive && project.status === 'Completed' && onAdminSetReportStatus && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-left shadow-sm space-y-3">
+              <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest">Finalize Project</h4>
+              <p className="text-[10px] font-bold uppercase text-slate-500">Review complete audit, costing, and client info before decision.</p>
+              <div className="flex gap-1.5">
+                <button onClick={() => setFinalizationActor('Sales')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${finalizationActor === 'Sales' ? 'bg-[#003399] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-400'}`}>Sales</button>
+                <button onClick={() => setFinalizationActor('Admin')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${finalizationActor === 'Admin' ? 'bg-amber-50 text-blue-900 shadow-md' : 'bg-white border border-slate-200 text-slate-400'}`}>Admin</button>
+              </div>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="Rejection reason (required for Reject)"
+                className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-xs font-medium text-slate-700 min-h-[70px] focus:outline-none focus:border-blue-900 transition-colors shadow-inner resize-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onAdminSetReportStatus({ status: 'Finalized - Approved', actedByRole: finalizationActor })}
+                  className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-green-600 text-white hover:bg-green-500"
+                >
+                  Approve Project
+                </button>
+                <button
+                  onClick={() => {
+                    if (!rejectionReason.trim()) return;
+                    onAdminSetReportStatus({
+                      status: 'Finalized - Rejected',
+                      reason: rejectionReason.trim(),
+                      actedByRole: finalizationActor,
+                    });
+                  }}
+                  className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition ${rejectionReason.trim() ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-slate-200 text-slate-500 cursor-not-allowed'}`}
+                >
+                  Reject Project
+                </button>
+              </div>
+            </div>
+          )}
+          {project.finalizationAuditTrail && project.finalizationAuditTrail.length > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-left shadow-sm space-y-2">
+              <h4 className="text-xs font-black text-blue-900 uppercase tracking-widest">Finalization Audit Trail</h4>
+              {project.finalizationAuditTrail.slice().reverse().map((entry) => (
+                <div key={entry.id} className="bg-white border border-slate-100 rounded-lg p-2">
+                  <p className="text-[10px] font-black uppercase text-slate-700">
+                    {entry.outcome === 'APPROVED' ? 'Approved' : 'Rejected'} by {entry.actedByRole}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-500">{new Date(entry.actedAt).toLocaleString()}</p>
+                  {entry.reason && <p className="text-xs text-slate-700 mt-0.5">{entry.reason}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       {!hideDoneButton && (

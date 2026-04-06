@@ -9,7 +9,9 @@ export type InAppNotificationKind =
   | 'TECH_ASSIGNMENT'
   | 'TECH_FINALIZATION'
   | 'ADMIN_FINALIZATION_REQUEST'
-  | 'ADMIN_TECH_RESPONSE';
+  | 'ADMIN_TECH_RESPONSE'
+  | 'ADMIN_TECH_COMPLETED'
+  | 'ADMIN_FINALIZATION_CONFIRMATION';
 
 export interface InAppNotification {
   id: string;
@@ -74,8 +76,8 @@ export function resolveTechnicianEmails(project: Project): string[] {
   }
 }
 
-function outcomeLabel(status: 'Finalized' | 'Rejected'): 'Approved' | 'Rejected' {
-  return status === 'Finalized' ? 'Approved' : 'Rejected';
+function outcomeLabel(status: 'Finalized' | 'Rejected' | 'Finalized - Approved' | 'Finalized - Rejected'): 'Approved' | 'Rejected' {
+  return status === 'Finalized' || status === 'Finalized - Approved' ? 'Approved' : 'Rejected';
 }
 
 export function notifyTechniciansAssigned(project: Project): void {
@@ -106,9 +108,14 @@ export function notifyAdminsProjectReadyForFinalization(project: Project): void 
   });
 }
 
-export function notifyTechniciansProjectFinalized(project: Project, status: 'Finalized' | 'Rejected'): void {
+export function notifyTechniciansProjectFinalized(
+  project: Project,
+  status: 'Finalized' | 'Rejected' | 'Finalized - Approved' | 'Finalized - Rejected',
+  reason?: string
+): void {
   const label = outcomeLabel(status);
-  const msg = `Your project has been finalized: ${label}.`;
+  const suffix = label === 'Rejected' && reason ? ` Reason: ${reason}` : '';
+  const msg = `Your project has been finalized: ${label}.${suffix}`;
   for (const email of resolveTechnicianEmails(project)) {
     push({
       kind: 'TECH_FINALIZATION',
@@ -121,6 +128,22 @@ export function notifyTechniciansProjectFinalized(project: Project, status: 'Fin
   }
 }
 
+export function notifyAdminsFinalizationConfirmation(
+  project: Project,
+  action: 'APPROVED' | 'REJECTED',
+  actedByRole: 'Admin' | 'Sales'
+): void {
+  const verb = action === 'APPROVED' ? 'approved' : 'rejected';
+  push({
+    kind: 'ADMIN_FINALIZATION_CONFIRMATION',
+    message: `${actedByRole} action saved: project ${project.id} was ${verb}.`,
+    projectId: project.id,
+    projectName: project.name,
+    recipientEmail: null,
+    recipientRole: 'ADMIN',
+  });
+}
+
 export function notifyAdminsTechnicianResponse(
   project: Project,
   technicianName: string,
@@ -130,6 +153,17 @@ export function notifyAdminsTechnicianResponse(
   push({
     kind: 'ADMIN_TECH_RESPONSE',
     message: `Technician ${technicianName} has ${action} the project.`,
+    projectId: project.id,
+    projectName: project.name,
+    recipientEmail: null,
+    recipientRole: 'ADMIN',
+  });
+}
+
+export function notifyAdminsTechnicianCompleted(project: Project, technicianName: string): void {
+  push({
+    kind: 'ADMIN_TECH_COMPLETED',
+    message: `Technician ${technicianName} marked Project ${project.id} as Done.`,
     projectId: project.id,
     projectName: project.name,
     recipientEmail: null,
@@ -149,7 +183,9 @@ function isVisible(n: InAppNotification, userEmail: string, userRole: 'TECHNICIA
     if (n.recipientRole !== 'ADMIN') return false;
     if (n.kind === 'ADMIN_FINALIZATION_REQUEST' && !prefs.approvalRequests) return false;
     if (n.kind === 'ADMIN_TECH_RESPONSE' && !prefs.technicianResponses) return false;
-    return n.kind === 'ADMIN_FINALIZATION_REQUEST' || n.kind === 'ADMIN_TECH_RESPONSE';
+    if (n.kind === 'ADMIN_TECH_COMPLETED' && !prefs.technicianResponses) return false;
+    if (n.kind === 'ADMIN_FINALIZATION_CONFIRMATION' && !prefs.approvalRequests) return false;
+    return n.kind === 'ADMIN_FINALIZATION_REQUEST' || n.kind === 'ADMIN_TECH_RESPONSE' || n.kind === 'ADMIN_TECH_COMPLETED' || n.kind === 'ADMIN_FINALIZATION_CONFIRMATION';
   }
   return false;
 }

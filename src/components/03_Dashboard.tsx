@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User, Project, SurveyType } from '../types';
 import type { ThemeMode } from './18_Profile';
 import PortalLayout, { PortalNavKey } from './19_PortalLayout';
-import { notifyAdminsTechnicianResponse, notifyTechniciansProjectFinalized } from '../utils/inAppNotifications';
+import { notifyAdminsTechnicianResponse } from '../utils/inAppNotifications';
 
 interface Props {
   /** The authenticated user's profile information, containing fullName and email. */
@@ -69,7 +69,12 @@ const Dashboard: React.FC<Props> = ({
   }, [user.email, user.fullName, userRole]);
 
   const resolveCategory = (project: Project): 'ONGOING' | 'UPCOMING' | 'HISTORY' => {
-    if (project.status === 'Finalized') return 'HISTORY';
+    if (
+      project.status === 'Finalized' ||
+      project.status === 'Finalized - Approved' ||
+      project.status === 'Finalized - Rejected' ||
+      project.status === 'Completed'
+    ) return 'HISTORY';
     if (!project.startDate) return 'ONGOING';
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -116,28 +121,6 @@ const Dashboard: React.FC<Props> = ({
     setShowSystemModal(false);
     setSelectedRecord(null);
     setEditableProject(null);
-  };
-
-  const updateProjectStatus = (index: number, status: Project['status']) => {
-    const raw = localStorage.getItem('aa2000_saved_projects');
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!parsed[index]?.project) return;
-    const nextProject = { ...parsed[index].project, status };
-    parsed[index] = {
-      ...parsed[index],
-      project: nextProject,
-    };
-    localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
-    setSavedProjects((prev) =>
-      prev.map((item) =>
-        item.index === index
-          ? { ...item, record: { ...item.record, project: { ...item.record.project, status } } }
-          : item
-      )
-    );
-    if (status === 'Finalized' || status === 'Rejected') {
-      notifyTechniciansProjectFinalized(nextProject, status);
-    }
   };
 
   const proceedToSurvey = (type: SurveyType) => {
@@ -217,12 +200,22 @@ const Dashboard: React.FC<Props> = ({
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
                         <p className="text-slate-400 font-black uppercase">Status</p>
-                        <p className="text-slate-700 dark:text-slate-200 font-bold mt-0.5">{project.status || 'In Progress'}</p>
+                        <p className="text-slate-700 dark:text-slate-200 font-bold mt-0.5">
+                          {project.status === 'Completed' ? 'Completed by Technician' : (project.status || 'In Progress')}
+                        </p>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
                         <p className="text-slate-400 font-black uppercase">Assigned</p>
                         <p className="text-slate-700 dark:text-slate-200 font-bold mt-0.5">{(project.assignedTechnicians || []).map((t) => t.fullName).join(', ') || '—'}</p>
                       </div>
+                      {activeSection === 'HISTORY' && (
+                        <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2 col-span-2 md:col-span-1">
+                          <p className="text-slate-400 font-black uppercase">Completed</p>
+                          <p className="text-slate-700 dark:text-slate-200 font-bold mt-0.5">
+                            {project.completedAt ? new Date(project.completedAt).toLocaleString() : '—'}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {userRole === 'TECHNICIAN' && activeSection !== 'HISTORY' && (
@@ -274,23 +267,14 @@ const Dashboard: React.FC<Props> = ({
                         >
                           Review Summary
                         </button>
-                        {project.status === 'Pending Review' && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => updateProjectStatus(index, 'Finalized')}
-                              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-green-600 text-white hover:bg-green-500"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateProjectStatus(index, 'Rejected')}
-                              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-red-600 text-white hover:bg-red-500"
-                            >
-                              Reject
-                            </button>
-                          </>
+                        {project.status === 'Completed' && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenSummaryFromList(record, index)}
+                            className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition bg-green-600 text-white hover:bg-green-500"
+                          >
+                            Finalize Project
+                          </button>
                         )}
                       </div>
                     )}

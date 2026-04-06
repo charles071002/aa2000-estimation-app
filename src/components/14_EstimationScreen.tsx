@@ -93,6 +93,7 @@ const CONSUMABLE_CATEGORIES: { key: string; label: string; items: string[] }[] =
 
 interface Props {
   project: Project;
+  viewerRole?: 'TECHNICIAN' | 'ADMIN' | null;
   type: SurveyType;
   cctvData: CCTVSurveyData | null;
   faData: FireAlarmSurveyData | null;
@@ -134,9 +135,13 @@ const LABOR_RATE_PER_HOUR: Record<string, number> = {
  * ESTIMATION SCREEN COMPONENT
  */
 const EstimationScreen: React.FC<Props> = ({ 
-  project, type, cctvData, faData, fpData, acData, baData, otherData,
+  project, viewerRole, type, cctvData, faData, fpData, acData, baData, otherData,
   initialEstimation, onComplete, onContinueFA, onContinueFP, onContinueCCTV, onContinueAC, onContinueBA, onContinueOther, onBack 
 }) => {
+  const isTechnicianRestrictedView = viewerRole === 'TECHNICIAN';
+  const canViewCosting = !isTechnicianRestrictedView;
+  const canViewSensitiveClientInfo = !isTechnicianRestrictedView;
+
   const [costs, setCosts] = useState({
     equipment: type === SurveyType.OTHER ? (otherData?.estimatedCost || 0) : 0,
     cables: type === SurveyType.OTHER ? (otherData?.cablesCost || 0) : 0,
@@ -800,15 +805,31 @@ const EstimationScreen: React.FC<Props> = ({
     // FIX 2: Ensure your endpoint exactly matches the backend (watch out for trailing slashes!)
     const url = `${secureBaseUrl}/service/estimation/upload/estimationFile`;
   
+    const projectForExport: Project = canViewSensitiveClientInfo
+      ? project
+      : {
+          ...project,
+          clientContact: 'REDACTED',
+          clientEmail: 'REDACTED',
+        };
+
+    const roleScopedEstimation: EstimationDetail = canViewCosting
+      ? est
+      : {
+          ...est,
+          additionalFees: [],
+          consumablesList: (est.consumablesList || []).map((entry) => ({ ...entry, unitPrice: undefined })),
+        };
+
     const blob = await createEstimationDocx(
-      project,
+      projectForExport,
       type,
       {
-        days: est.days,
-        techs: est.techs,
-        manpowerBreakdown: est.manpowerBreakdown,
-        consumablesList: est.consumablesList,
-        additionalFees: est.additionalFees
+        days: roleScopedEstimation.days,
+        techs: roleScopedEstimation.techs,
+        manpowerBreakdown: roleScopedEstimation.manpowerBreakdown,
+        consumablesList: roleScopedEstimation.consumablesList,
+        additionalFees: roleScopedEstimation.additionalFees
       },
       { cctvData, faData, fpData, acData, baData, otherData }
     );
@@ -820,9 +841,11 @@ const EstimationScreen: React.FC<Props> = ({
     
     const formData = new FormData();
     formData.append('estimationDoc', file);
+    formData.append('viewerRole', isTechnicianRestrictedView ? 'TECHNICIAN' : 'ADMIN');
     
     const headers: Record<string, string> = {};
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    headers['X-Viewer-Role'] = isTechnicianRestrictedView ? 'TECHNICIAN' : 'ADMIN';
   
     // Optional: If Dev Tunnels still intercepts the request to show a "Warning" HTML page, 
     // you may need to uncomment this bypass header:
@@ -1343,62 +1366,70 @@ const EstimationScreen: React.FC<Props> = ({
           </p>
         </div>
 
-        <div className="flex flex-col gap-4 pt-4 border-t border-slate-100">
-          {[
-            { label: 'Calculated Hardware Sum', val: costs.equipment },
-            { label: 'Cabling Infrastructure', val: costs.cables },
-            { label: 'Consumables Total', val: consumablesTotal }
-          ].map(item => (
-            <div key={item.label} className="flex justify-between items-center text-sm font-bold shrink-0">
-              <span className="text-slate-500">{item.label}</span>
-              <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(item.val)}</span>
+        {canViewCosting ? (
+          <div className="flex flex-col gap-4 pt-4 border-t border-slate-100">
+            {[
+              { label: 'Calculated Hardware Sum', val: costs.equipment },
+              { label: 'Cabling Infrastructure', val: costs.cables },
+              { label: 'Consumables Total', val: consumablesTotal }
+            ].map(item => (
+              <div key={item.label} className="flex justify-between items-center text-sm font-bold shrink-0">
+                <span className="text-slate-500">{item.label}</span>
+                <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(item.val)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between items-center text-sm font-bold shrink-0">
+              <span className="text-slate-500">Total Professional Labor</span>
+              <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(costs.labor)}</span>
             </div>
-          ))}
-          <div className="flex justify-between items-center text-sm font-bold shrink-0">
-            <span className="text-slate-500">Total Professional Labor</span>
-            <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(costs.labor)}</span>
+            {additionalFees.map((f) => (
+              <div key={f.id} className="flex justify-between items-center text-sm font-bold shrink-0">
+                <span className="text-slate-500">{f.type}</span>
+                <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(f.amount)}</span>
+              </div>
+            ))}
+            <div className="shrink-0">
+              <button
+                type="button"
+                onClick={() => { setShowAdditionalFeeModal(true); setAdditionalFeeAmountInput(''); }}
+                className="w-full py-3 border-2 border-blue-900 rounded-xl text-[10px] font-black text-blue-900 uppercase tracking-widest hover:bg-blue-50 transition active:scale-[0.98]"
+              >
+                Additional Fee
+              </button>
+            </div>
+            
+            <div className="pt-4 space-y-2 border-t border-slate-100 pb-4">
+              <div className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-400">
+                <span>Subtotal ({type})</span><span>{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-400">
+                <span>VAT (12%)</span><span>{formatCurrency(tax)}</span>
+              </div>
+              <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-blue-900">
+                <span className="text-lg font-black text-blue-900 uppercase">ESTIMATED ({type})</span>
+                <span className="text-xl font-black font-mono text-blue-900">{formatCurrency(total)}</span>
+              </div>
+            </div>
           </div>
-          {additionalFees.map((f) => (
-            <div key={f.id} className="flex justify-between items-center text-sm font-bold shrink-0">
-              <span className="text-slate-500">{f.type}</span>
-              <span className="font-mono text-slate-900 text-right w-32 shrink-0">{formatCurrency(f.amount)}</span>
-            </div>
-          ))}
-          <div className="shrink-0">
-            <button
-              type="button"
-              onClick={() => { setShowAdditionalFeeModal(true); setAdditionalFeeAmountInput(''); }}
-              className="w-full py-3 border-2 border-blue-900 rounded-xl text-[10px] font-black text-blue-900 uppercase tracking-widest hover:bg-blue-50 transition active:scale-[0.98]"
-            >
-              Additional Fee
-            </button>
+        ) : (
+          <div className="pt-4 border-t border-slate-100 pb-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+              Costing and billing details are hidden for technician view.
+            </p>
           </div>
-          
-          <div className="pt-4 space-y-2 border-t border-slate-100 pb-4">
-            <div className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-400">
-              <span>Subtotal ({type})</span><span>{formatCurrency(subtotal)}</span>
-            </div>
-            <div className="flex justify-between items-center text-xs font-bold uppercase tracking-tight text-slate-400">
-              <span>VAT (12%)</span><span>{formatCurrency(tax)}</span>
-            </div>
-            <div className="flex justify-between items-center pt-4 mt-2 border-t-2 border-blue-900">
-              <span className="text-lg font-black text-blue-900 uppercase">ESTIMATED ({type})</span>
-              <span className="text-xl font-black font-mono text-blue-900">{formatCurrency(total)}</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Action buttons – scroll with content below Estimated section */}
         <div className="pt-6 space-y-3 pb-6">
           <button
             disabled={isUploading}
             onClick={async () => {
-              const est = {
+              const est: EstimationDetail = {
                 days: laborDetails.days,
                 techs: laborDetails.techs,
                 manpowerBreakdown,
                 consumablesList,
-                additionalFees,
+                additionalFees: canViewCosting ? additionalFees : [],
                 siteConstraintPhysical: siteConstraintPhysical || undefined,
                 siteConstraintElectrical: siteConstraintElectrical || undefined,
                 siteConstraintInstallation: siteConstraintInstallation || undefined,
@@ -1420,7 +1451,7 @@ const EstimationScreen: React.FC<Props> = ({
             }}
             className="w-full py-4 bg-blue-900 text-white font-black rounded-xl shadow-xl active:scale-95 transition tracking-widest uppercase disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isUploading ? 'UPLOADING…' : 'FINALIZE FULL REPORT'}
+            {isUploading ? 'UPLOADING…' : (canViewCosting ? 'FINALIZE FULL REPORT' : 'SAVE TECHNICAL BREAKDOWN')}
           </button>
           {uploadError && (
             <p className="text-red-600 text-sm font-medium text-center mt-1" role="alert">{uploadError}</p>
@@ -2674,8 +2705,12 @@ const EstimationScreen: React.FC<Props> = ({
                 <div className="bg-slate-50 rounded-xl p-4 space-y-1.5 text-slate-700">
                   <p><span className="font-bold text-slate-500">Name:</span> {project.name}</p>
                   <p><span className="font-bold text-slate-500">Client:</span> {project.clientName}</p>
-                  <p><span className="font-bold text-slate-500">Contact:</span> {project.clientContact}</p>
-                  <p><span className="font-bold text-slate-500">Email:</span> {project.clientEmail}</p>
+                  {canViewSensitiveClientInfo && (
+                    <p><span className="font-bold text-slate-500">Contact:</span> {project.clientContact}</p>
+                  )}
+                  {canViewSensitiveClientInfo && (
+                    <p><span className="font-bold text-slate-500">Email:</span> {project.clientEmail}</p>
+                  )}
                   {(project.locationName || project.location) && (
                     <p><span className="font-bold text-slate-500">Location:</span> {project.locationName || project.location}</p>
                   )}
@@ -2780,8 +2815,8 @@ const EstimationScreen: React.FC<Props> = ({
                       <p><span className="font-bold text-slate-500">Scope:</span> {otherData.scopeOfWork || otherData.otherScopeOfWork || '—'}</p>
                       <p><span className="font-bold text-slate-500">Coverage:</span> {otherData.coverageArea || otherData.otherCoverageArea || '—'}</p>
                       <p><span className="font-bold text-slate-500">Service details:</span> {otherData.serviceDetails || '—'}</p>
-                      {otherData.estimatedCost != null && <p><span className="font-bold text-slate-500">Estimated cost:</span> {formatCurrency(otherData.estimatedCost)}</p>}
-                      {otherData.cablesCost != null && <p><span className="font-bold text-slate-500">Cables cost:</span> {formatCurrency(otherData.cablesCost)}</p>}
+                      {canViewCosting && otherData.estimatedCost != null && <p><span className="font-bold text-slate-500">Estimated cost:</span> {formatCurrency(otherData.estimatedCost)}</p>}
+                      {canViewCosting && otherData.cablesCost != null && <p><span className="font-bold text-slate-500">Cables cost:</span> {formatCurrency(otherData.cablesCost)}</p>}
                     </>
                   )}
                 </div>
@@ -2823,29 +2858,30 @@ const EstimationScreen: React.FC<Props> = ({
                   <p className="text-[10px] text-slate-500 mt-2">Total: {totalManDays.toFixed(2)} Man-Days</p>
                 </div>
               </section>
-              {/* Cost summary */}
-              <section>
-                <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-2">Cost Summary</h4>
-                <div className="bg-slate-50 rounded-xl p-4 space-y-1.5">
-                  <div className="flex justify-between text-slate-700"><span>Hardware</span><span className="font-mono">{formatCurrency(costs.equipment)}</span></div>
-                  <div className="flex justify-between text-slate-700"><span>Cabling</span><span className="font-mono">{formatCurrency(costs.cables)}</span></div>
-                  <div className="flex justify-between text-slate-700"><span>Consumables Total</span><span className="font-mono">{formatCurrency(consumablesTotal)}</span></div>
-                  <div className="flex justify-between text-slate-700"><span>Labor</span><span className="font-mono">{formatCurrency(costs.labor)}</span></div>
-                  {additionalFees.length > 0 && (
-                    <>
-                      <div className="pt-1.5 border-t border-slate-200/60">
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Additional fees (Inventory Recount)</p>
-                        {additionalFees.map((f) => (
-                          <div key={f.id} className="flex justify-between text-slate-700"><span>{f.type}</span><span className="font-mono">{formatCurrency(f.amount)}</span></div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                  <div className="flex justify-between text-slate-400 text-sm pt-2 border-t border-slate-200"><span>Subtotal</span><span className="font-mono">{formatCurrency(subtotal)}</span></div>
-                  <div className="flex justify-between text-slate-400 text-sm"><span>VAT (12%)</span><span className="font-mono">{formatCurrency(tax)}</span></div>
-                  <div className="flex justify-between text-blue-900 font-black pt-1"><span>Estimated ({type})</span><span className="font-mono text-lg">{formatCurrency(total)}</span></div>
-                </div>
-              </section>
+              {canViewCosting && (
+                <section>
+                  <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-2">Cost Summary</h4>
+                  <div className="bg-slate-50 rounded-xl p-4 space-y-1.5">
+                    <div className="flex justify-between text-slate-700"><span>Hardware</span><span className="font-mono">{formatCurrency(costs.equipment)}</span></div>
+                    <div className="flex justify-between text-slate-700"><span>Cabling</span><span className="font-mono">{formatCurrency(costs.cables)}</span></div>
+                    <div className="flex justify-between text-slate-700"><span>Consumables Total</span><span className="font-mono">{formatCurrency(consumablesTotal)}</span></div>
+                    <div className="flex justify-between text-slate-700"><span>Labor</span><span className="font-mono">{formatCurrency(costs.labor)}</span></div>
+                    {additionalFees.length > 0 && (
+                      <>
+                        <div className="pt-1.5 border-t border-slate-200/60">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Additional fees (Inventory Recount)</p>
+                          {additionalFees.map((f) => (
+                            <div key={f.id} className="flex justify-between text-slate-700"><span>{f.type}</span><span className="font-mono">{formatCurrency(f.amount)}</span></div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between text-slate-400 text-sm pt-2 border-t border-slate-200"><span>Subtotal</span><span className="font-mono">{formatCurrency(subtotal)}</span></div>
+                    <div className="flex justify-between text-slate-400 text-sm"><span>VAT (12%)</span><span className="font-mono">{formatCurrency(tax)}</span></div>
+                    <div className="flex justify-between text-blue-900 font-black pt-1"><span>Estimated ({type})</span><span className="font-mono text-lg">{formatCurrency(total)}</span></div>
+                  </div>
+                </section>
+              )}
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
               <button onClick={() => setShowInventoryRecountModal(false)} className="w-full py-3 bg-blue-900 text-white font-black rounded-xl text-[11px] uppercase tracking-widest active:scale-[0.98] transition">

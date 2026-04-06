@@ -11,6 +11,25 @@ export enum SurveyType {
   OTHER = 'Other'
 }
 
+export type FinalizationOutcome = 'APPROVED' | 'REJECTED';
+
+export interface FinalizationActionLog {
+  id: string;
+  outcome: FinalizationOutcome;
+  reason?: string;
+  actedAt: string;
+  actedByRole: 'Admin' | 'Sales';
+  actedByName?: string;
+}
+
+export interface ProjectFinalizationInfo {
+  outcome: FinalizationOutcome;
+  reason?: string;
+  actedAt: string;
+  actedByRole: 'Admin' | 'Sales';
+  actedByName?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -30,7 +49,22 @@ export interface Project {
   technicianResponses?: Record<string, 'ACCEPTED' | 'DECLINED'>;
   /** Required manpower count assigned during project setup. */
   requiredTechnicians?: number;
-  status: 'In Progress' | 'Pending Review' | 'Rejected' | 'Finalized' | 'Completed';
+  /** Completion audit trail when technician marks a project as done. */
+  completedAt?: string;
+  /** Technician display name who completed the project. */
+  completedBy?: string;
+  status:
+    | 'In Progress'
+    | 'Pending Review'
+    | 'Rejected'
+    | 'Finalized'
+    | 'Completed'
+    | 'Finalized - Approved'
+    | 'Finalized - Rejected';
+  /** Latest finalization decision details from Sales/Admin. */
+  finalization?: ProjectFinalizationInfo;
+  /** Immutable-style audit log of finalization actions. */
+  finalizationAuditTrail?: FinalizationActionLog[];
   technicianName: string;
   date: string;
 }

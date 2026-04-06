@@ -18,8 +18,11 @@ import SurveySummary from './15_SurveySummary';
 import Profile, { THEME_KEY, ThemeMode, COMPACT_MODE_KEY } from './18_Profile';
 import PortalLayout, { type PortalNavKey } from './19_PortalLayout';
 import { AA2000_LOGO } from '../constants';
+import { toSummaryViewByRole } from '../services/summaryAccess';
 import {
+  notifyAdminsTechnicianCompleted,
   notifyAdminsProjectReadyForFinalization,
+  notifyAdminsFinalizationConfirmation,
   notifyTechniciansAssigned,
   notifyTechniciansProjectFinalized,
 } from '../utils/inAppNotifications';
@@ -28,7 +31,7 @@ import {
  * APPLICATION WORKFLOW SCREENS
  * Defines the logical UI states the user can traverse.
  * ROLE_SELECTION -> LOGIN/SIGNUP -> DASHBOARD -> (Workflow Loop below)
- * TECHNICIAN: PROJECT_DETAILS -> SURVEY -> AI -> SUMMARY (mark done → Pending Review).
+ * TECHNICIAN: PROJECT_DETAILS -> SURVEY -> AI -> ESTIMATION -> SUMMARY (mark done -> Completed).
  * SALES/ADMIN: ... -> ESTIMATION -> SUMMARY (billing + finalize / remarks).
  */
 type Screen =
@@ -574,13 +577,6 @@ const App: React.FC = () => {
     setScreen('SUMMARY');
   };
 
-  /** Technician path after AI: save audit data only (no billing), then open summary. */
-  const handleTechnicianAuditSavedToSummary = () => {
-    if (!surveyType || !activeProject) return;
-    persistMergedRecord({ ...estimations });
-    setScreen('SUMMARY');
-  };
-
   /**
    * DYNAMIC RENDERER
    * Logic: Switches the visible component based on 'screen' state. 
@@ -890,14 +886,10 @@ const App: React.FC = () => {
             setNarrative={setAuditNarrative}
             onComplete={({ narrative, suggestedEstimation }) => {
               setAuditNarrative(narrative);
-              if (userRole !== 'TECHNICIAN' && suggestedEstimation && surveyType) {
+              if (suggestedEstimation && surveyType) {
                 setEstimations(prev => ({ ...prev, [surveyType]: suggestedEstimation }));
               }
-              if (userRole === 'TECHNICIAN') {
-                handleTechnicianAuditSavedToSummary();
-              } else {
-                setScreen('ESTIMATION');
-              }
+              setScreen('ESTIMATION');
             }}
             onBack={() => {
               const prevMap: Record<string, Screen> = {
@@ -913,6 +905,7 @@ const App: React.FC = () => {
         return (
           <EstimationScreen 
             project={activeProject!}
+            viewerRole={userRole}
             type={surveyType!}
             cctvData={cctvData}
             faData={faData}
@@ -941,6 +934,22 @@ const App: React.FC = () => {
         const dBA = selectedHistoricalProject?.baData || baData;
         const dO = selectedHistoricalProject?.otherData || otherData;
         const dE = selectedHistoricalProject?.estimations || estimations;
+        const summaryView =
+          dP
+            ? toSummaryViewByRole(
+                {
+                  project: dP,
+                  cctvData: dC,
+                  faData: dF,
+                  fpData: dFP,
+                  acData: dAC,
+                  baData: dBA,
+                  otherData: dO,
+                  estimations: dE,
+                },
+                userRole
+              )
+            : null;
 
 if (!dP) {
           return (
@@ -1017,7 +1026,7 @@ if (!dP) {
         };
 
         /** Hide only while waiting on admin or fully closed; Rejected allows resubmit after edits. */
-        const technicianDoneHiddenStatuses: Project['status'][] = ['Pending Review', 'Finalized', 'Completed'];
+        const technicianDoneHiddenStatuses: Project['status'][] = ['Pending Review', 'Finalized', 'Finalized - Approved', 'Finalized - Rejected', 'Completed'];
         const shouldHideTechnicianDoneButton =
           userRole === 'TECHNICIAN' &&
           !!selectedHistoricalProject &&
@@ -1027,18 +1036,18 @@ if (!dP) {
           <SurveySummary
             user={user}
             userRole={userRole}
-            project={dP}
-            cctvData={dC}
-            faData={dF}
-            fpData={dFP}
-            acData={dAC}
-            baData={dBA}
-            otherData={dO}
-            estimations={dE}
+            project={summaryView!.project}
+            cctvData={summaryView!.cctvData}
+            faData={summaryView!.faData}
+            fpData={summaryView!.fpData}
+            acData={summaryView!.acData}
+            baData={summaryView!.baData}
+            otherData={summaryView!.otherData}
+            estimations={summaryView!.estimations}
             hideDoneButton={userRole === 'ADMIN' || shouldHideTechnicianDoneButton}
             onAdminSetReportStatus={
               userRole === 'ADMIN'
-                ? (status) => {
+                ? ({ status, reason, actedByRole }) => {
                     const raw = localStorage.getItem('aa2000_saved_projects');
                     const parsed = raw ? JSON.parse(raw) : [];
                     const projId = selectedHistoricalProject?.project?.id ?? dP.id;
@@ -1051,7 +1060,28 @@ if (!dP) {
                       if (found >= 0) idx = found;
                     }
                     if (idx !== null && idx >= 0 && parsed[idx]?.project) {
-                      const nextProject = { ...parsed[idx].project, status };
+                      const now = new Date().toISOString();
+                      const outcome: 'APPROVED' | 'REJECTED' = status === 'Finalized - Approved' ? 'APPROVED' : 'REJECTED';
+                      const auditEntry = {
+                        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `f-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                        outcome,
+                        reason: reason || undefined,
+                        actedAt: now,
+                        actedByRole,
+                        actedByName: user?.fullName || undefined,
+                      };
+                      const nextProject = {
+                        ...parsed[idx].project,
+                        status,
+                        finalization: {
+                          outcome,
+                          reason: reason || undefined,
+                          actedAt: now,
+                          actedByRole,
+                          actedByName: user?.fullName || undefined,
+                        },
+                        finalizationAuditTrail: [...(parsed[idx].project?.finalizationAuditTrail || []), auditEntry],
+                      };
                       parsed[idx] = {
                         ...parsed[idx],
                         project: nextProject,
@@ -1059,9 +1089,8 @@ if (!dP) {
                       localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
                       setSelectedHistoricalProject(parsed[idx]);
                       if (editingIndex === null) setEditingIndex(idx);
-                      if (status === 'Finalized' || status === 'Rejected') {
-                        notifyTechniciansProjectFinalized(nextProject, status);
-                      }
+                      notifyTechniciansProjectFinalized(nextProject, status, reason);
+                      notifyAdminsFinalizationConfirmation(nextProject, outcome, actedByRole);
                     }
                   }
                 : undefined
@@ -1071,12 +1100,29 @@ if (!dP) {
                 const raw = localStorage.getItem('aa2000_saved_projects');
                 const parsed = raw ? JSON.parse(raw) : [];
                 if (parsed[editingIndex]?.project) {
-                  const nextProject = { ...parsed[editingIndex].project, status: 'Pending Review' as const };
+                  const completionTime = new Date().toISOString();
+                  const nextProject = {
+                    ...parsed[editingIndex].project,
+                    status: 'Completed' as const,
+                    completedAt: completionTime,
+                    completedBy: user?.fullName || parsed[editingIndex].project?.technicianName || 'Technician',
+                  };
                   parsed[editingIndex] = {
                     ...parsed[editingIndex],
                     project: nextProject,
                   };
                   localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+                  const historyRaw = localStorage.getItem('aa2000_project_history');
+                  const history = historyRaw ? JSON.parse(historyRaw) : [];
+                  const currentRecord = parsed[editingIndex];
+                  const historyIndex = history.findIndex((row: any) => row?.timestamp === currentRecord?.timestamp);
+                  if (historyIndex >= 0) {
+                    history[historyIndex] = { ...currentRecord, archivedAt: completionTime };
+                  } else {
+                    history.push({ ...currentRecord, archivedAt: completionTime });
+                  }
+                  localStorage.setItem('aa2000_project_history', JSON.stringify(history));
+                  notifyAdminsTechnicianCompleted(nextProject, nextProject.completedBy || nextProject.technicianName || 'Technician');
                   notifyAdminsProjectReadyForFinalization(nextProject);
                 }
               }
