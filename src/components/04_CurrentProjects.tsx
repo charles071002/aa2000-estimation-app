@@ -196,10 +196,9 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
   };
 
   /**
-   * filteredProjects: Computational filter logic for the search input.
-   * Matches against name, client, technician, and location strings.
+   * filteredProjects: Only finalized reports (status === 'Finalized'), then search.
    */
-  const filteredProjects = projects.filter(item => {
+  const filteredProjects = projects.filter((item) => item.project?.status === 'Finalized').filter((item) => {
     const query = searchQuery.toLowerCase();
     const p = item.project;
     const types = [item.cctvData?'cctv':'', item.faData?'fire':'', item.fpData?'fire protection':'', item.acData?'access':'', item.baData?'burglar':'', item.otherData?'other':''].join(' ');
@@ -213,7 +212,7 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
     // Sales/Admin should not be able to delete final reports from the list view.
     const canDelete = isOwner;
     return (
-      <div className="flex flex-col h-full bg-white animate-fade-in overflow-hidden">
+      <div className="flex flex-col h-full bg-white dark:bg-slate-950 animate-fade-in overflow-hidden">
         <header className="p-4 bg-blue-900 text-white flex items-center justify-between shadow-lg shrink-0 z-30">
           <button onClick={() => { setShowDeleteProjectConfirm(false); setSelectedProject(null); }} className="flex items-center gap-2">
             <i className="fas fa-arrow-left"></i>
@@ -285,22 +284,22 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
 
   // UI RENDERING - Project List Home
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-950 overflow-hidden">
       <header className="p-4 bg-[#003399] text-white flex items-center shadow-lg shrink-0 z-20">
         <button onClick={onBack} className="mr-4"><i className="fas fa-arrow-left text-lg"></i></button>
         <h2 className="text-lg font-black uppercase tracking-tight">FINALIZED REPORTS</h2>
       </header>
       
       {/* Search Interaction Layer */}
-      <div className="px-6 py-3 bg-white border-b border-slate-100 shrink-0 z-10">
+      <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 shrink-0 z-10">
         <div className="relative">
           <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-          <input type="text"  className="w-full pl-10 pr-12 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#003399] transition shadow-inner" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <input type="text"  className="w-full pl-10 pr-12 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003399] transition shadow-inner" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           <button type="button" onClick={() => startVoiceInput('search', setSearchQuery)} className={`absolute right-4 top-1/2 -translate-y-1/2 transition ${activeVoiceField === 'search' ? 'text-red-500 animate-pulse' : 'text-slate-400 hover:text-[#003399]'}`}><i className="fas fa-microphone"></i></button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-50/30 [grid-auto-rows:minmax(140px,1fr)]">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-50/30 dark:bg-slate-950 [grid-auto-rows:minmax(140px,1fr)]">
         {filteredProjects.length === 0 ? (
           <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-300 space-y-4 pt-10">
             <i className="fas fa-search text-5xl opacity-20"></i>
@@ -324,7 +323,7 @@ const CurrentProjects: React.FC<Props> = ({ user, userRole, onBack, onEditAuditF
               <div key={item.timestamp} className="relative animate-fade-in h-full min-h-[140px]">
                 <div 
                   onClick={() => openProject(item)} 
-                  className={`h-full min-h-[140px] w-full text-left p-3 border-[1.5px] rounded-3xl hover:border-[#003399] transition shadow-[0_5px_15px_-5px_rgba(0,51,153,0.08)] group active:scale-[0.98] cursor-pointer flex flex-col ${isCompleted ? 'bg-[#E2FBEB] border-[#1E834F]/30' : 'bg-white border-[#003399]/20'}`}
+                  className={`h-full min-h-[140px] w-full text-left p-3 border-[1.5px] rounded-3xl hover:border-[#003399] transition shadow-[0_5px_15px_-5px_rgba(0,51,153,0.08)] group active:scale-[0.98] cursor-pointer flex flex-col ${isCompleted ? 'bg-[#E2FBEB] dark:bg-emerald-950/40 border-[#1E834F]/30' : 'bg-white dark:bg-slate-900 border-[#003399]/20 dark:border-slate-600'}`}
                 >
                   <div className="flex justify-between items-start mb-1.5 mt-1.5 shrink-0">
                     <h3 className="text-lg font-bold text-[#003399] uppercase leading-none tracking-tighter truncate ml-1">{item.project.name}</h3>

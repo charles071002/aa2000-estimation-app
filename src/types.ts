@@ -454,6 +454,10 @@ export interface User {
   fullName: string;
   email: string;
   password?: string;
+  /** Profile fields (persisted with account). */
+  phone?: string;
+  role?: string;
+  department?: string;
 }
 
 export interface ChatMessage {

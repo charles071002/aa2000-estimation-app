@@ -15,13 +15,15 @@ import OtherSurvey from './11_OtherSurvey';
 import AIClarification from './13_AIClarification';
 import EstimationScreen from './14_EstimationScreen';
 import SurveySummary from './15_SurveySummary';
+import Profile, { THEME_KEY, ThemeMode } from './18_Profile';
 import { AA2000_LOGO } from '../constants';
 
 /**
  * APPLICATION WORKFLOW SCREENS
  * Defines the logical UI states the user can traverse.
  * ROLE_SELECTION -> LOGIN/SIGNUP -> DASHBOARD -> (Workflow Loop below)
- * PROJECT_DETAILS -> SYSTEM_SURVEY -> ESTIMATION -> SUMMARY
+ * TECHNICIAN: PROJECT_DETAILS -> SURVEY -> AI -> SUMMARY (mark done → Pending Review).
+ * SALES/ADMIN: ... -> ESTIMATION -> SUMMARY (billing + finalize / remarks).
  */
 type Screen =
   | 'ROLE_SELECTION'
@@ -30,6 +32,7 @@ type Screen =
   | 'ADMIN_LOGIN'
   | 'SIGNUP'
   | 'DASHBOARD'
+  | 'PROFILE'
   | 'CURRENT_PROJECTS'
   | 'PROJECT_DETAILS'
   | 'CCTV_SURVEY'
@@ -50,6 +53,7 @@ const SCREEN_TO_PATH: Record<Screen, string> = {
   ADMIN_LOGIN: '/admin-login',
   SIGNUP: '/signup',
   DASHBOARD: '/dashboard',
+  PROFILE: '/profile',
   CURRENT_PROJECTS: '/projects',
   PROJECT_DETAILS: '/project-details',
   CCTV_SURVEY: '/survey/cctv',
@@ -74,7 +78,7 @@ function pathnameToScreen(pathname: string): Screen {
 
 /** Screens that require an authenticated user; direct URL access without login shows auth notice. */
 const PROTECTED_SCREENS: Screen[] = [
-  'DASHBOARD', 'CURRENT_PROJECTS', 'PROJECT_DETAILS',
+  'DASHBOARD', 'PROFILE', 'CURRENT_PROJECTS', 'PROJECT_DETAILS',
   'CCTV_SURVEY', 'FA_SURVEY', 'FP_SURVEY', 'AC_SURVEY', 'BA_SURVEY', 'OTHER_SURVEY',
   'AI_CLARIFICATION', 'ESTIMATION', 'SUMMARY',
 ];
@@ -91,6 +95,14 @@ const App: React.FC = () => {
   );
   const [userRole, setUserRole] = useState<'TECHNICIAN' | 'ADMIN' | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') return 'light';
+    try {
+      return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
   
   // --- PROJECT BUFFERS ---
   // These states act as temporary containers for a survey currently "in-flight".
@@ -262,6 +274,17 @@ const App: React.FC = () => {
     window.scrollTo(0, 0);
   }, [screen]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* ignore */
+    }
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#020617' : '#2563eb');
+  }, [theme]);
+
   /**
    * AUTHENTICATION HANDLERS
    * Purpose: Transitions the app from guest to authenticated state.
@@ -422,10 +445,60 @@ const App: React.FC = () => {
     setScreen('PROJECT_DETAILS');
   };
 
+  /** Resolve storage row index for the project being edited or viewed. */
+  const resolveStorageIndex = (fallbackRecord?: { project?: Project; timestamp?: string } | null): number | null => {
+    if (editingIndex !== null) return editingIndex;
+    const savedProjectsRaw = localStorage.getItem('aa2000_saved_projects');
+    if (!savedProjectsRaw) return null;
+    const savedProjects = JSON.parse(savedProjectsRaw) as any[];
+    const id = fallbackRecord?.project?.id ?? activeProject?.id;
+    const ts = fallbackRecord?.timestamp;
+    if (!id) return null;
+    const idx = savedProjects.findIndex(
+      (p: any) => p.project?.id === id && (!ts || p.timestamp === ts)
+    );
+    return idx >= 0 ? idx : null;
+  };
+
+  const buildSavedRecord = (mergedEstimations: Record<string, EstimationDetail>, existing: any | null) => {
+    const st = surveyType!;
+    return {
+      project: activeProject,
+      cctvData: st === SurveyType.CCTV ? cctvData : (existing?.cctvData ?? null),
+      faData: st === SurveyType.FIRE_ALARM ? faData : (existing?.faData ?? null),
+      fpData: st === SurveyType.FIRE_PROTECTION ? fpData : (existing?.fpData ?? null),
+      acData: st === SurveyType.ACCESS_CONTROL ? acData : (existing?.acData ?? null),
+      baData: st === SurveyType.BURGLAR_ALARM ? baData : (existing?.baData ?? null),
+      otherData: st === SurveyType.OTHER ? otherData : (existing?.otherData ?? null),
+      estimations: mergedEstimations,
+      timestamp: existing?.timestamp ?? new Date().toISOString(),
+      remarks: existing?.remarks,
+      techNotes: existing?.techNotes,
+    };
+  };
+
+  /** Persists survey buffers + estimations; keeps prior systems and metadata when merging. */
+  const persistMergedRecord = (mergedEstimations: Record<string, EstimationDetail>) => {
+    const savedProjectsRaw = localStorage.getItem('aa2000_saved_projects');
+    const savedProjects = savedProjectsRaw ? JSON.parse(savedProjectsRaw) : [];
+    const idx = resolveStorageIndex(selectedHistoricalProject);
+    const existing = idx !== null && savedProjects[idx] ? savedProjects[idx] : null;
+    const newRecord = buildSavedRecord(mergedEstimations, existing);
+    if (idx !== null) {
+      savedProjects[idx] = newRecord;
+      setEditingIndex(idx);
+    } else {
+      savedProjects.push(newRecord);
+      setEditingIndex(savedProjects.length - 1);
+    }
+    localStorage.setItem('aa2000_saved_projects', JSON.stringify(savedProjects));
+    setSelectedHistoricalProject(newRecord);
+    setEstimations(mergedEstimations);
+  };
+
   /**
-   * FINALIZATION HANDLER
-   * Logic: Compiles the active buffers into a single "Project Record" and persists to localStorage.
-   * Output: Navigates to the Summary report view.
+   * FINALIZATION HANDLER (Sales/Admin estimation flow)
+   * Persists financial + technical record and opens the summary.
    */
   const handleFinalize = (est: EstimationDetail) => {
     if (surveyType) {
@@ -433,29 +506,14 @@ const App: React.FC = () => {
       saveNexaCalibration(surveyType, units, est);
     }
     const finalEstimations = { ...estimations, [surveyType!]: est };
-    const savedProjectsRaw = localStorage.getItem('aa2000_saved_projects');
-    const savedProjects = savedProjectsRaw ? JSON.parse(savedProjectsRaw) : [];
-    
-    const newRecord = {
-      project: activeProject,
-      cctvData: finalEstimations[SurveyType.CCTV] ? cctvData : null,
-      faData: finalEstimations[SurveyType.FIRE_ALARM] ? faData : null,
-      fpData: finalEstimations[SurveyType.FIRE_PROTECTION] ? fpData : null,
-      acData: finalEstimations[SurveyType.ACCESS_CONTROL] ? acData : null,
-      baData: finalEstimations[SurveyType.BURGLAR_ALARM] ? baData : null,
-      otherData: finalEstimations[SurveyType.OTHER] ? otherData : null,
-      estimations: finalEstimations,
-      timestamp: new Date().toISOString()
-    };
-    
-    if (editingIndex !== null) {
-      savedProjects[editingIndex] = newRecord;
-    } else {
-      savedProjects.push(newRecord);
-    }
-    
-    localStorage.setItem('aa2000_saved_projects', JSON.stringify(savedProjects));
-    setEstimations(finalEstimations);
+    persistMergedRecord(finalEstimations);
+    setScreen('SUMMARY');
+  };
+
+  /** Technician path after AI: save audit data only (no billing), then open summary. */
+  const handleTechnicianAuditSavedToSummary = () => {
+    if (!surveyType || !activeProject) return;
+    persistMergedRecord({ ...estimations });
     setScreen('SUMMARY');
   };
 
@@ -470,13 +528,13 @@ const App: React.FC = () => {
       return (
         <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-[1px] flex items-center justify-center p-4 animate-fade-in" aria-modal="true" role="dialog" aria-labelledby="auth-required-title">
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-6 text-center"
+            className="bg-white dark:bg-slate-900 dark:border dark:border-slate-700 rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-6 text-center"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="scale-110 origin-center">{AA2000_LOGO}</div>
             <div className="space-y-2">
-              <h2 id="auth-required-title" className="text-xl font-bold text-slate-800">Authentication required</h2>
-              <p className="text-slate-600 text-sm">
+              <h2 id="auth-required-title" className="text-xl font-bold text-slate-800 dark:text-slate-100">Authentication required</h2>
+              <p className="text-slate-600 dark:text-slate-400 text-sm">
                 You must log in or sign up first before you can access this page.
               </p>
             </div>
@@ -585,7 +643,21 @@ const App: React.FC = () => {
               setEditingIndex(index);
               setScreen('SUMMARY');
             }}
+            onOpenFinalizedReports={() => setScreen('CURRENT_PROJECTS')}
+            onOpenProfile={() => setScreen('PROFILE')}
             onLogout={handleLogout}
+          />
+        );
+
+      case 'PROFILE':
+        return (
+          <Profile
+            user={user!}
+            userRole={userRole}
+            theme={theme}
+            onThemeChange={setTheme}
+            onUserUpdate={setUser}
+            onBack={() => setScreen('DASHBOARD')}
           />
         );
 
@@ -594,9 +666,25 @@ const App: React.FC = () => {
           <CurrentProjects 
             user={user}
             userRole={userRole}
+            onGoToDashboardSection={
+              userRole === 'ADMIN'
+                ? (section) => {
+                    sessionStorage.setItem('aa2000_dashboard_section', section);
+                    setScreen('DASHBOARD');
+                  }
+                : undefined
+            }
             onBack={() => setScreen('DASHBOARD')}
             onViewProject={(proj) => {
               setSelectedHistoricalProject(proj);
+              const raw = localStorage.getItem('aa2000_saved_projects');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                const i = parsed.findIndex(
+                  (p: any) => p.project?.id === proj.project?.id && p.timestamp === proj.timestamp
+                );
+                if (i >= 0) setEditingIndex(i);
+              }
               setScreen('SUMMARY');
             }}
             onEditProject={handleEditProject}
@@ -698,10 +786,14 @@ const App: React.FC = () => {
             setNarrative={setAuditNarrative}
             onComplete={({ narrative, suggestedEstimation }) => {
               setAuditNarrative(narrative);
-              if (suggestedEstimation && surveyType) {
+              if (userRole !== 'TECHNICIAN' && suggestedEstimation && surveyType) {
                 setEstimations(prev => ({ ...prev, [surveyType]: suggestedEstimation }));
               }
-              setScreen('ESTIMATION');
+              if (userRole === 'TECHNICIAN') {
+                handleTechnicianAuditSavedToSummary();
+              } else {
+                setScreen('ESTIMATION');
+              }
             }}
             onBack={() => {
               const prevMap: Record<string, Screen> = {
@@ -820,13 +912,16 @@ if (!dP) {
           setScreen(surveyTypeToScreen[surveyType]);
         };
 
+        /** Hide only while waiting on admin or fully closed; Rejected allows resubmit after edits. */
+        const technicianDoneHiddenStatuses: Project['status'][] = ['Pending Review', 'Finalized', 'Completed'];
         const shouldHideTechnicianDoneButton =
           userRole === 'TECHNICIAN' &&
           !!selectedHistoricalProject &&
-          dP.status !== 'In Progress';
+          technicianDoneHiddenStatuses.includes((dP.status || 'In Progress') as Project['status']);
 
         return (
           <SurveySummary
+            user={user}
             userRole={userRole}
             project={dP}
             cctvData={dC}
@@ -837,6 +932,32 @@ if (!dP) {
             otherData={dO}
             estimations={dE}
             hideDoneButton={userRole === 'ADMIN' || shouldHideTechnicianDoneButton}
+            onAdminSetReportStatus={
+              userRole === 'ADMIN'
+                ? (status) => {
+                    const raw = localStorage.getItem('aa2000_saved_projects');
+                    const parsed = raw ? JSON.parse(raw) : [];
+                    const projId = selectedHistoricalProject?.project?.id ?? dP.id;
+                    const ts = selectedHistoricalProject?.timestamp;
+                    let idx = editingIndex;
+                    if ((idx === null || idx < 0) && projId) {
+                      const found = parsed.findIndex(
+                        (p: any) => p.project?.id === projId && (!ts || p.timestamp === ts)
+                      );
+                      if (found >= 0) idx = found;
+                    }
+                    if (idx !== null && idx >= 0 && parsed[idx]?.project) {
+                      parsed[idx] = {
+                        ...parsed[idx],
+                        project: { ...parsed[idx].project, status },
+                      };
+                      localStorage.setItem('aa2000_saved_projects', JSON.stringify(parsed));
+                      setSelectedHistoricalProject(parsed[idx]);
+                      if (editingIndex === null) setEditingIndex(idx);
+                    }
+                  }
+                : undefined
+            }
             onDone={() => {
               if (userRole === 'TECHNICIAN' && editingIndex !== null) {
                 const raw = localStorage.getItem('aa2000_saved_projects');
@@ -865,7 +986,11 @@ if (!dP) {
   };
 
   return (
-    <div className="w-full min-h-[100dvh] h-[100dvh] bg-white relative overflow-hidden text-slate-900 font-sans flex flex-col transition-all duration-500">
+    <div
+      className={`w-full min-h-[100dvh] h-[100dvh] relative overflow-hidden font-sans flex flex-col transition-colors duration-300 ${
+        theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-900'
+      }`}
+    >
       {renderScreen()}
     </div>
   );

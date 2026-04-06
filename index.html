@@ -16,6 +16,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -112,7 +113,7 @@
   }
 </style>
 </head>
-<body class="bg-white text-slate-900">
+<body class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300">
   <div id="root" role="main"></div>
 <script type="module" src="/src/main.tsx"></script>
 </body>
