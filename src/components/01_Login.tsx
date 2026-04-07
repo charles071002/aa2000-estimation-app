@@ -112,7 +112,13 @@ const Login: React.FC<Props> = ({ onBack, onLogin }) => {
           <p className="text-slate-500 text-sm mt-2 font-medium">AA2000 Site Survey Portal</p>
         </div>
         
-        <div className="space-y-6">
+        <form
+          className="space-y-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleLoginAttempt();
+          }}
+        >
           {/* Dynamic Error Messaging for Failed Auth */}
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center justify-center gap-3 animate-shake text-center">
@@ -169,20 +175,21 @@ const Login: React.FC<Props> = ({ onBack, onLogin }) => {
               Logic: Triggers the handleLoginAttempt function.
               UI Label: "Log In" signals the start of the verification process.
           */}
-          <button 
-            onClick={handleLoginAttempt}
+          <button
+            type="submit"
             className="w-full py-4 bg-blue-900 hover:bg-blue-800 text-white font-black rounded-xl shadow-xl transition active:scale-[0.98]"
           >
             Log In
           </button>
 
-          <button 
+          <button
+            type="button"
             onClick={handleForgot}
             className="w-full text-center text-blue-600 text-sm font-bold hover:text-blue-800 underline underline-offset-4"
           >
             Forgot Password?
           </button>
-        </div>
+        </form>
       </div>
       
       <style>{`
